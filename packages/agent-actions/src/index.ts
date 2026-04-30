@@ -14,6 +14,12 @@ export type ResearchLeadExecution = {
   error?: string;
 };
 
+export type AgentConnectionStatus = {
+  configured: boolean;
+  commandPreview: string;
+  mode: "mock" | "openclaw-cli";
+};
+
 const safeDomain = (website?: string) => {
   if (!website) {
     return "unknown domain";
@@ -28,6 +34,16 @@ const safeDomain = (website?: string) => {
 
 const compact = (parts: Array<string | undefined>) =>
   parts.filter(Boolean).join(" ");
+
+const getCommandPreview = (command?: string) => {
+  if (!command) {
+    return "OPENCLAW_COMMAND not configured";
+  }
+
+  const [binary] = command.trim().split(/\s+/);
+
+  return binary ? `${binary} …` : "OPENCLAW_COMMAND configured";
+};
 
 const buildPrompt = (lead: Lead) => `You are researching a business lead for Temporary Utopia.
 Return strict JSON with these keys:
@@ -185,3 +201,11 @@ export const runResearchLeadAction = async (
     };
   }
 };
+
+export const getAgentConnectionStatus = (
+  command = process.env.OPENCLAW_COMMAND,
+): AgentConnectionStatus => ({
+  configured: Boolean(command?.trim()),
+  commandPreview: getCommandPreview(command),
+  mode: command?.trim() ? "openclaw-cli" : "mock",
+});

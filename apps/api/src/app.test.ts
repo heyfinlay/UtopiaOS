@@ -39,4 +39,16 @@ describe("createApp", () => {
     expect(researchPayload.lead.research).toBeDefined();
     expect(researchPayload.agentRun.status).toBe("completed");
   });
+
+  it("reports runtime system status", async () => {
+    const repository = createUtopiaRepository();
+    const app = createApp(repository);
+
+    const response = await app.request("/api/system/status");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.repositoryMode).toBe("memory");
+    expect(payload.agentMode).toBe("mock");
+  });
 });

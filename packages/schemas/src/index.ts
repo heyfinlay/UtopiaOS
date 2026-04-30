@@ -55,6 +55,8 @@ export const agentRunModeSchema = z.enum([
   "openclaw-cli",
 ]);
 
+export const repositoryModeSchema = z.enum(["memory", "supabase"]);
+
 export const researchOpportunitySchema = z.object({
   title: z.string().trim().min(2),
   reason: z.string().trim().min(2),
@@ -199,5 +201,16 @@ export const researchLeadResponseSchema = z.object({
   stats: z.array(progressStatSchema),
 });
 
+export const systemStatusSchema = z.object({
+  repositoryMode: repositoryModeSchema,
+  supabaseConfigured: z.boolean(),
+  persistenceEnabled: z.boolean(),
+  ownerConfigured: z.boolean(),
+  agentCommandConfigured: z.boolean(),
+  agentCommandPreview: z.string(),
+  agentMode: z.enum(["mock", "openclaw-cli"]),
+});
+
 export type CreateLeadResponse = z.infer<typeof createLeadResponseSchema>;
 export type ResearchLeadResponse = z.infer<typeof researchLeadResponseSchema>;
+export type SystemStatus = z.infer<typeof systemStatusSchema>;

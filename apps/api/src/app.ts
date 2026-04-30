@@ -1,11 +1,15 @@
 import process from "node:process";
 
 import { zValidator } from "@hono/zod-validator";
-import { runResearchLeadAction } from "@utopia/agent-actions";
+import {
+  getAgentConnectionStatus,
+  runResearchLeadAction,
+} from "@utopia/agent-actions";
 import {
   createLeadInputSchema,
   createLeadResponseSchema,
   researchLeadResponseSchema,
+  systemStatusSchema,
 } from "@utopia/schemas";
 import { type UtopiaRepository, utopiaRepository } from "@utopia/db";
 import { Hono } from "hono";
@@ -38,6 +42,11 @@ const paramsSchema = z.object({
 
 export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
   const app = new Hono();
+  const agentStatus = getAgentConnectionStatus();
+  const hasSupabaseEnv = Boolean(
+    process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  );
+  const hasOwnerEnv = Boolean(process.env.UTOPIA_OWNER_ID?.trim());
 
   app.use(
     "*",
@@ -50,26 +59,42 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
     context.json({
       ok: true,
       service: "utopia-command-api",
+      repositoryMode: repository.mode,
+      agentMode: agentStatus.mode,
     }),
   );
 
-  app.get("/api/dashboard", (context) =>
-    context.json(repository.getDashboardSummary()),
+  app.get("/api/dashboard", async (context) =>
+    context.json(await repository.getDashboardSummary()),
   );
 
-  app.get("/api/leads", (context) =>
+  app.get("/api/leads", async (context) =>
     context.json({
-      leads: repository.listLeads(),
-      stats: repository.listProgressStats(),
+      leads: await repository.listLeads(),
+      stats: await repository.listProgressStats(),
     }),
+  );
+
+  app.get("/api/system/status", (context) =>
+    context.json(
+      systemStatusSchema.parse({
+        repositoryMode: repository.mode,
+        supabaseConfigured: hasSupabaseEnv,
+        persistenceEnabled: repository.mode === "supabase",
+        ownerConfigured: hasOwnerEnv,
+        agentCommandConfigured: agentStatus.configured,
+        agentCommandPreview: agentStatus.commandPreview,
+        agentMode: agentStatus.mode,
+      }),
+    ),
   );
 
   app.get(
     "/api/leads/:leadId",
     zValidator("param", paramsSchema),
-    (context) => {
+    async (context) => {
       const { leadId } = context.req.valid("param");
-      const lead = repository.getLead(leadId);
+      const lead = await repository.getLead(leadId);
 
       if (!lead) {
         return context.json({ error: "Lead not found." }, 404);
@@ -82,10 +107,10 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
   app.post(
     "/api/leads",
     zValidator("json", createLeadInputSchema),
-    (context) => {
-      const lead = repository.createLead(context.req.valid("json"));
-      const stats = repository.awardXp(xpForLeadCreation);
-      const activity = repository.createActivity({
+    async (context) => {
+      const lead = await repository.createLead(context.req.valid("json"));
+      const stats = await repository.awardXp(xpForLeadCreation);
+      const activity = await repository.createActivity({
         entityType: "lead",
         entityId: lead.id,
         kind: "lead.created",
@@ -110,15 +135,15 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
     zValidator("param", paramsSchema),
     async (context) => {
       const { leadId } = context.req.valid("param");
-      const lead = repository.getLead(leadId);
+      const lead = await repository.getLead(leadId);
 
       if (!lead) {
         return context.json({ error: "Lead not found." }, 404);
       }
 
-      repository.updateLeadStatus(leadId, "researching");
+      await repository.updateLeadStatus(leadId, "researching");
 
-      const queuedRun = repository.createAgentRun({
+      const queuedRun = await repository.createAgentRun({
         action: "research_lead",
         mode: "mock",
         status: "running",
@@ -132,13 +157,16 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
 
       try {
         const execution = await runResearchLeadAction(lead);
-        const updatedLead = repository.applyResearchToLead(leadId, execution.result);
+        const updatedLead = await repository.applyResearchToLead(
+          leadId,
+          execution.result,
+        );
 
         if (!updatedLead) {
           return context.json({ error: "Lead not found after research." }, 404);
         }
 
-        const completedRun = repository.updateAgentRun(queuedRun.id, {
+        const completedRun = await repository.updateAgentRun(queuedRun.id, {
           mode: execution.mode,
           status: "completed",
           summary: `${updatedLead.company} researched with ${execution.result.opportunities.length} mapped opportunity angles.`,
@@ -147,8 +175,8 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
           error: execution.error,
         });
 
-        const stats = repository.awardXp(xpForResearch);
-        const activity = repository.createActivity({
+        const stats = await repository.awardXp(xpForResearch);
+        const activity = await repository.createActivity({
           entityType: "lead",
           entityId: leadId,
           kind: "lead.researched",
@@ -157,7 +185,7 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
           xpAwards: xpForResearch,
         });
 
-        repository.createActivity({
+        await repository.createActivity({
           entityType: "agent_run",
           entityId: queuedRun.id,
           kind: "agent.run.completed",
@@ -183,7 +211,7 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
           }),
         );
       } catch (error) {
-        const failedRun = repository.updateAgentRun(queuedRun.id, {
+        const failedRun = await repository.updateAgentRun(queuedRun.id, {
           status: "failed",
           completedAt: new Date().toISOString(),
           error: error instanceof Error ? error.message : "Unknown research error",

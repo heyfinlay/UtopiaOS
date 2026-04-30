@@ -5,6 +5,7 @@ import type {
   Lead,
   ProgressStat,
   ResearchLeadResponse,
+  SystemStatus,
 } from "@utopia/schemas";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8787";
@@ -51,6 +52,7 @@ export const api = {
   getDashboard: () => request<DashboardSummary>("/api/dashboard"),
   getLeads: () => request<LeadsResponse>("/api/leads"),
   getLead: (leadId: string) => request<{ lead: Lead }>(`/api/leads/${leadId}`),
+  getSystemStatus: () => request<SystemStatus>("/api/system/status"),
   createLead: (payload: CreateLeadInput) =>
     request<CreateLeadResponse>("/api/leads", {
       method: "POST",
@@ -61,4 +63,3 @@ export const api = {
       method: "POST",
     }),
 };
-

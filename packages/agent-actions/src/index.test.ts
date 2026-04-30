@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { runResearchLeadAction } from "./index";
+import { getAgentConnectionStatus, runResearchLeadAction } from "./index";
 
 describe("runResearchLeadAction", () => {
   it("returns validated structured research in mock mode", async () => {
@@ -21,5 +21,13 @@ describe("runResearchLeadAction", () => {
     expect(execution.mode).toBe("mock");
     expect(execution.result.opportunities.length).toBeGreaterThan(0);
     expect(execution.result.confidence).toBeGreaterThan(60);
+  });
+
+  it("summarizes agent runtime configuration", () => {
+    expect(getAgentConnectionStatus()).toEqual({
+      configured: false,
+      commandPreview: "OPENCLAW_COMMAND not configured",
+      mode: "mock",
+    });
   });
 });
