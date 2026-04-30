@@ -78,6 +78,36 @@ export const researchLeadResultSchema = z.object({
 
 export type ResearchLeadResult = z.infer<typeof researchLeadResultSchema>;
 
+export const deliveryStageSchema = z.enum([
+  "backlog",
+  "scoping",
+  "implementation",
+  "handoff",
+  "retainer",
+]);
+
+export const commercialProfileSchema = z.object({
+  pipelineValue: z.number().nonnegative(),
+  weightedValue: z.number().nonnegative(),
+  closedValue: z.number().nonnegative(),
+  invoiceIssued: z.number().nonnegative(),
+  invoiceOutstanding: z.number().nonnegative(),
+  clientSavingsValue: z.number().nonnegative(),
+  nextRevenueMilestone: z.string().trim().min(2),
+});
+
+export type CommercialProfile = z.infer<typeof commercialProfileSchema>;
+
+export const deliveryProfileSchema = z.object({
+  stage: deliveryStageSchema,
+  completionPercent: z.number().min(0).max(100),
+  nextDeliverable: z.string().trim().min(2),
+  dueLabel: z.string().trim().min(2),
+  riskLevel: z.enum(["low", "medium", "high"]),
+});
+
+export type DeliveryProfile = z.infer<typeof deliveryProfileSchema>;
+
 export const leadSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(2),
@@ -89,6 +119,8 @@ export const leadSchema = z.object({
   notes: optionalTrimmedString,
   nextAction: optionalTrimmedString,
   research: researchLeadResultSchema.optional(),
+  commercial: commercialProfileSchema.optional(),
+  delivery: deliveryProfileSchema.optional(),
   lastResearchedAt: z.string().datetime().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -169,6 +201,50 @@ export const pipelineMetricSchema = z.object({
   trend: z.string().trim().min(2),
 });
 
+export const financeMetricSchema = z.object({
+  label: z.string().trim().min(2),
+  amount: z.number().nonnegative(),
+  changeLabel: z.string().trim().min(2),
+  tone: z.enum(["success", "warning", "neutral"]),
+});
+
+export type FinanceMetric = z.infer<typeof financeMetricSchema>;
+
+export const actionItemSchema = z.object({
+  id: z.string().trim().min(1),
+  title: z.string().trim().min(2),
+  description: z.string().trim().min(2),
+  href: z.string().trim().min(1),
+  emphasis: z.enum(["revenue", "delivery", "pipeline", "ops"]),
+  valueLabel: z.string().trim().min(1),
+});
+
+export type ActionItem = z.infer<typeof actionItemSchema>;
+
+export const revenueDashboardSchema = z.object({
+  target: z.number().nonnegative(),
+  collected: z.number().nonnegative(),
+  outstanding: z.number().nonnegative(),
+  pipeline: z.number().nonnegative(),
+  weightedPipeline: z.number().nonnegative(),
+  clientSavings: z.number().nonnegative(),
+  progress: z.number().min(0).max(1),
+  headline: z.string().trim().min(2),
+  financeMetrics: z.array(financeMetricSchema).min(3),
+});
+
+export type RevenueDashboard = z.infer<typeof revenueDashboardSchema>;
+
+export const deliveryDashboardSchema = z.object({
+  activeCount: z.number().int().nonnegative(),
+  dueSoonCount: z.number().int().nonnegative(),
+  atRiskCount: z.number().int().nonnegative(),
+  nextPayoutLabel: z.string().trim().min(2),
+  highlightedAccounts: z.array(leadSchema).max(4),
+});
+
+export type DeliveryDashboard = z.infer<typeof deliveryDashboardSchema>;
+
 export const mainQuestSchema = z.object({
   title: z.string().trim().min(2),
   description: z.string().trim().min(2),
@@ -178,6 +254,9 @@ export const mainQuestSchema = z.object({
 export const dashboardSummarySchema = z.object({
   generatedAt: z.string().datetime(),
   mainQuest: mainQuestSchema,
+  revenue: revenueDashboardSchema,
+  actionItems: z.array(actionItemSchema).min(1),
+  delivery: deliveryDashboardSchema,
   missions: z.array(missionSchema).min(1),
   pipeline: z.array(pipelineMetricSchema).min(1),
   stats: z.array(progressStatSchema).min(1),

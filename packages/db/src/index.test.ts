@@ -14,7 +14,10 @@ describe("createUtopiaRepository", () => {
     });
 
     expect((await repository.getLead(lead.id))?.company).toBe("Orbit Systems");
-    expect((await repository.getDashboardSummary()).pipeline[0]?.value).toBeGreaterThan(0);
+    const dashboard = await repository.getDashboardSummary();
+    expect(dashboard.pipeline[0]?.value).toBeGreaterThan(0);
+    expect(dashboard.revenue.pipeline).toBeGreaterThan(0);
+    expect(dashboard.actionItems.length).toBeGreaterThan(0);
   });
 
   it("awards xp and stores research results", async () => {

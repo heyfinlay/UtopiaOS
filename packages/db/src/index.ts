@@ -86,6 +86,8 @@ type LeadRow = {
   notes: string | null;
   next_action: string | null;
   research_payload: unknown;
+  commercial_profile: unknown;
+  delivery_profile: unknown;
   last_researched_at: string | null;
   created_at: string;
   updated_at: string;
@@ -165,6 +167,7 @@ const priorityWeight: Record<Lead["priority"], number> = {
 const nowIso = () => new Date().toISOString();
 
 const compact = (parts: Array<string | undefined>) => parts.filter(Boolean).join(" ");
+const cashTarget = 30_000;
 
 const sortLeads = (leads: Lead[]) =>
   [...leads].sort((a, b) => {
@@ -193,6 +196,50 @@ const buildProgressStat = (key: StatKey, xp: number): ProgressStat => {
   };
 };
 
+const createDefaultCommercialProfile = (priority: Lead["priority"]) => {
+  if (priority === "critical") {
+    return {
+      pipelineValue: 16_000,
+      weightedValue: 10_500,
+      closedValue: 0,
+      invoiceIssued: 0,
+      invoiceOutstanding: 0,
+      clientSavingsValue: 0,
+      nextRevenueMilestone: "Convert the account into a proposal with a clear deposit ask.",
+    };
+  }
+
+  if (priority === "high") {
+    return {
+      pipelineValue: 9_500,
+      weightedValue: 5_400,
+      closedValue: 0,
+      invoiceIssued: 0,
+      invoiceOutstanding: 0,
+      clientSavingsValue: 0,
+      nextRevenueMilestone: "Tighten the angle and move the lead toward a concrete offer.",
+    };
+  }
+
+  return {
+    pipelineValue: 4_500,
+    weightedValue: 2_100,
+    closedValue: 0,
+    invoiceIssued: 0,
+    invoiceOutstanding: 0,
+    clientSavingsValue: 0,
+    nextRevenueMilestone: "Qualify the account before spending heavy delivery effort.",
+  };
+};
+
+const createDefaultDeliveryProfile = () => ({
+  stage: "backlog" as const,
+  completionPercent: 0,
+  nextDeliverable: "Discovery not yet scheduled.",
+  dueLabel: "No delivery due yet",
+  riskLevel: "low" as const,
+});
+
 const createSeedState = (): UtopiaState => {
   const seedTime = nowIso();
   const researchedLead: Lead = leadSchema.parse({
@@ -205,6 +252,22 @@ const createSeedState = (): UtopiaState => {
     status: "researching",
     notes: "Interested in reducing proposal turnaround and client onboarding drag.",
     nextAction: "Send a 4-line note with an audit teaser and onboarding automation example.",
+    commercial: {
+      pipelineValue: 9_800,
+      weightedValue: 6_600,
+      closedValue: 0,
+      invoiceIssued: 0,
+      invoiceOutstanding: 0,
+      clientSavingsValue: 36_000,
+      nextRevenueMilestone: "Convert the research into a paid audit kickoff call.",
+    },
+    delivery: {
+      stage: "scoping",
+      completionPercent: 24,
+      nextDeliverable: "Scope the onboarding automation audit and confirm kickoff.",
+      dueLabel: "Audit scope due tomorrow",
+      riskLevel: "medium",
+    },
     research: {
       overview:
         "Northline Studio looks like a strong boutique-services fit where workflow automation can tighten proposal speed and reduce onboarding overhead without disrupting delivery quality.",
@@ -253,6 +316,76 @@ const createSeedState = (): UtopiaState => {
     status: "new",
     notes: "Mentioned manual reporting and a stretched ops coordinator.",
     nextAction: "Run AI research and shape a wedge offer around reporting automation.",
+    commercial: {
+      pipelineValue: 18_500,
+      weightedValue: 12_400,
+      closedValue: 0,
+      invoiceIssued: 0,
+      invoiceOutstanding: 0,
+      clientSavingsValue: 0,
+      nextRevenueMilestone: "Research this lead and frame a reporting automation wedge offer.",
+    },
+    delivery: createDefaultDeliveryProfile(),
+    createdAt: seedTime,
+    updatedAt: seedTime,
+  });
+
+  const proposalLead: Lead = leadSchema.parse({
+    id: randomUUID(),
+    name: "Mason Lee",
+    company: "Summit Tax Advisory",
+    website: "https://summittaxadvisory.com",
+    source: "Podcast inbound",
+    priority: "critical",
+    status: "proposal",
+    notes: "Interested in replacing manual client reporting and handoffs before EOFY.",
+    nextAction: "Follow up on proposal and secure the kickoff deposit.",
+    commercial: {
+      pipelineValue: 21_000,
+      weightedValue: 15_800,
+      closedValue: 0,
+      invoiceIssued: 6_000,
+      invoiceOutstanding: 6_000,
+      clientSavingsValue: 82_000,
+      nextRevenueMilestone: "Collect the signed scope and deposit to start delivery.",
+    },
+    delivery: {
+      stage: "scoping",
+      completionPercent: 42,
+      nextDeliverable: "Prepare kickoff deck and implementation plan.",
+      dueLabel: "Kickoff ready this week",
+      riskLevel: "medium",
+    },
+    createdAt: seedTime,
+    updatedAt: seedTime,
+  });
+
+  const wonLead: Lead = leadSchema.parse({
+    id: randomUUID(),
+    name: "Aria Chen",
+    company: "Driftline Studio",
+    website: "https://driftlinestudio.com",
+    source: "Warm client referral",
+    priority: "high",
+    status: "won",
+    notes: "Signed for a studio operations sprint and follow-on retainer discussion.",
+    nextAction: "Deliver the automation handoff and tee up the ongoing retainer.",
+    commercial: {
+      pipelineValue: 0,
+      weightedValue: 0,
+      closedValue: 14_000,
+      invoiceIssued: 14_000,
+      invoiceOutstanding: 3_500,
+      clientSavingsValue: 96_000,
+      nextRevenueMilestone: "Collect the final invoice and upsell a maintenance retainer.",
+    },
+    delivery: {
+      stage: "implementation",
+      completionPercent: 68,
+      nextDeliverable: "Automation handoff and training session.",
+      dueLabel: "Handoff due Friday",
+      riskLevel: "high",
+    },
     createdAt: seedTime,
     updatedAt: seedTime,
   });
@@ -276,6 +409,26 @@ const createSeedState = (): UtopiaState => {
       },
       createdAt: seedTime,
     }),
+    activitySchema.parse({
+      id: randomUUID(),
+      entityType: "lead",
+      entityId: proposalLead.id,
+      kind: "deal.proposal_followup",
+      actor: "human",
+      message: "Proposal sent to Summit Tax Advisory. Deposit follow-up due this week.",
+      xpAwards: zeroXp(),
+      createdAt: seedTime,
+    }),
+    activitySchema.parse({
+      id: randomUUID(),
+      entityType: "lead",
+      entityId: wonLead.id,
+      kind: "deal.delivery_active",
+      actor: "system",
+      message: "Driftline Studio is in active delivery with a final invoice still outstanding.",
+      xpAwards: zeroXp(),
+      createdAt: seedTime,
+    }),
   ];
 
   const agentRuns: AgentRun[] = [
@@ -296,7 +449,7 @@ const createSeedState = (): UtopiaState => {
   ];
 
   return {
-    leads: sortLeads([researchedLead, newLead]),
+    leads: sortLeads([proposalLead, wonLead, researchedLead, newLead]),
     activities,
     agentRuns,
     statXp: {
@@ -378,6 +531,155 @@ const buildPipeline = (state: UtopiaState) => {
   ];
 };
 
+const sumCommercial = (
+  leads: Lead[],
+  selector: (lead: NonNullable<Lead["commercial"]>) => number,
+) =>
+  leads.reduce((total, lead) => total + selector(lead.commercial ?? createDefaultCommercialProfile(lead.priority)), 0);
+
+const buildRevenueSnapshot = (state: UtopiaState) => {
+  const collected = sumCommercial(state.leads, (commercial) => commercial.closedValue);
+  const outstanding = sumCommercial(state.leads, (commercial) => commercial.invoiceOutstanding);
+  const pipeline = sumCommercial(state.leads, (commercial) => commercial.pipelineValue);
+  const weightedPipeline = sumCommercial(state.leads, (commercial) => commercial.weightedValue);
+  const clientSavings = sumCommercial(state.leads, (commercial) => commercial.clientSavingsValue);
+  const progress = Math.min(collected / cashTarget, 1);
+  const liveInvoices = state.leads.filter(
+    (lead) => (lead.commercial?.invoiceOutstanding ?? 0) > 0,
+  ).length;
+  const proposalCount = state.leads.filter((lead) => lead.status === "proposal").length;
+  const wonCount = state.leads.filter((lead) => lead.status === "won").length;
+  const gap = Math.max(cashTarget - collected, 0);
+
+  return {
+    target: cashTarget,
+    collected,
+    outstanding,
+    pipeline,
+    weightedPipeline,
+    clientSavings,
+    progress,
+    headline:
+      gap > 0
+        ? `$${gap.toLocaleString("en-AU")} left to hit the current cash target.`
+        : "Cash target cleared. Push the next wave of pipeline forward.",
+    financeMetrics: [
+      {
+        label: "Collected",
+        amount: collected,
+        changeLabel: `${wonCount} won account${wonCount === 1 ? "" : "s"} contributing`,
+        tone: "success" as const,
+      },
+      {
+        label: "Awaiting Payment",
+        amount: outstanding,
+        changeLabel: `${liveInvoices} live invoice${liveInvoices === 1 ? "" : "s"} to chase`,
+        tone: outstanding > 0 ? ("warning" as const) : ("neutral" as const),
+      },
+      {
+        label: "Weighted Pipeline",
+        amount: weightedPipeline,
+        changeLabel: `${proposalCount} close-ready account${proposalCount === 1 ? "" : "s"} in play`,
+        tone: "neutral" as const,
+      },
+      {
+        label: "Client Savings",
+        amount: clientSavings,
+        changeLabel: "Proof of value to feed back into sales",
+        tone: "success" as const,
+      },
+    ],
+  };
+};
+
+const buildActionItems = (state: UtopiaState) => {
+  const highestPipelineLead = [...state.leads].sort(
+    (a, b) => (b.commercial?.weightedValue ?? 0) - (a.commercial?.weightedValue ?? 0),
+  )[0];
+  const unpaidLead = [...state.leads].find(
+    (lead) => (lead.commercial?.invoiceOutstanding ?? 0) > 0,
+  );
+  const deliveryRiskLead = [...state.leads].find(
+    (lead) => lead.delivery?.riskLevel === "high",
+  );
+  const rawLead = state.leads.find((lead) => !lead.research);
+
+  return [
+    unpaidLead && {
+      id: "action-collect-invoice",
+      title: `Collect ${unpaidLead.company}`,
+      description: unpaidLead.commercial?.nextRevenueMilestone ?? "Collect the outstanding invoice.",
+      href: `/leads/${unpaidLead.id}`,
+      emphasis: "revenue" as const,
+      valueLabel: `$${(unpaidLead.commercial?.invoiceOutstanding ?? 0).toLocaleString("en-AU")} open`,
+    },
+    highestPipelineLead && {
+      id: "action-close-pipeline",
+      title: `Advance ${highestPipelineLead.company}`,
+      description:
+        highestPipelineLead.commercial?.nextRevenueMilestone ??
+        "Push the lead to the next commercial checkpoint.",
+      href: `/leads/${highestPipelineLead.id}`,
+      emphasis: "pipeline" as const,
+      valueLabel: `$${(highestPipelineLead.commercial?.weightedValue ?? 0).toLocaleString("en-AU")} weighted`,
+    },
+    deliveryRiskLead && {
+      id: "action-delivery-risk",
+      title: `Unblock ${deliveryRiskLead.company}`,
+      description:
+        deliveryRiskLead.delivery?.nextDeliverable ?? "Review the next delivery milestone.",
+      href: `/leads/${deliveryRiskLead.id}`,
+      emphasis: "delivery" as const,
+      valueLabel: deliveryRiskLead.delivery?.dueLabel ?? "Due soon",
+    },
+    rawLead && {
+      id: "action-research-queue",
+      title: `Research ${rawLead.company}`,
+      description: rawLead.nextAction ?? "Turn the raw lead into a scoped revenue play.",
+      href: `/leads/${rawLead.id}`,
+      emphasis: "ops" as const,
+      valueLabel: rawLead.priority.toUpperCase(),
+    },
+  ].filter(Boolean);
+};
+
+const buildDeliverySnapshot = (state: UtopiaState) => {
+  const highlightedAccounts = state.leads
+    .filter((lead) => lead.delivery && lead.status !== "lost")
+    .sort(
+      (a, b) =>
+        (b.commercial?.invoiceOutstanding ?? b.commercial?.closedValue ?? 0) -
+        (a.commercial?.invoiceOutstanding ?? a.commercial?.closedValue ?? 0),
+    )
+    .slice(0, 4);
+
+  const activeCount = highlightedAccounts.filter(
+    (lead) => (lead.delivery?.stage ?? "backlog") !== "backlog",
+  ).length;
+  const dueSoonCount = highlightedAccounts.filter(
+    (lead) => (lead.delivery?.completionPercent ?? 0) < 100,
+  ).length;
+  const atRiskCount = highlightedAccounts.filter(
+    (lead) => lead.delivery?.riskLevel === "high",
+  ).length;
+  const nextPayoutLead = [...state.leads]
+    .filter((lead) => (lead.commercial?.invoiceOutstanding ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (b.commercial?.invoiceOutstanding ?? 0) - (a.commercial?.invoiceOutstanding ?? 0),
+    )[0];
+
+  return {
+    activeCount,
+    dueSoonCount,
+    atRiskCount,
+    nextPayoutLabel: nextPayoutLead
+      ? `$${(nextPayoutLead.commercial?.invoiceOutstanding ?? 0).toLocaleString("en-AU")} due from ${nextPayoutLead.company}`
+      : "No invoices currently awaiting payment",
+    highlightedAccounts,
+  };
+};
+
 const listProgressStatsFromMap = (statXp: StatXpMap): ProgressStat[] =>
   (Object.keys(statXp) as StatKey[]).map((key) => buildProgressStat(key, statXp[key]));
 
@@ -388,12 +690,16 @@ const buildDashboardSummary = (state: UtopiaState): DashboardSummary =>
   dashboardSummarySchema.parse({
     generatedAt: nowIso(),
     mainQuest: {
-      title: "Research the hottest lead and lock the next revenue move.",
+      title: "Turn today’s hottest pipeline move into collected cash.",
       description:
+        buildActionItems(state)[0]?.description ??
         getFeaturedLead(state)?.nextAction ??
-        "Keep the mission board clean by creating or researching the next lead.",
+        "Keep the revenue board moving by closing, collecting, or delivering.",
       xpReward: 45,
     },
+    revenue: buildRevenueSnapshot(state),
+    actionItems: buildActionItems(state),
+    delivery: buildDeliverySnapshot(state),
     missions: buildMissions(state),
     pipeline: buildPipeline(state),
     stats: listProgressStatsFromMap(state.statXp),
@@ -444,6 +750,18 @@ const parseResearch = (payload: unknown) => {
   return researchLeadResultSchema.parse(payload);
 };
 
+const parseProfileObject = <T>(payload: unknown, parser: (value: unknown) => T) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return undefined;
+  }
+
+  return parser(payload);
+};
+
 const toLead = (row: LeadRow): Lead =>
   leadSchema.parse({
     id: row.id,
@@ -456,6 +774,8 @@ const toLead = (row: LeadRow): Lead =>
     notes: normalizeOptionalString(row.notes),
     nextAction: normalizeOptionalString(row.next_action),
     research: parseResearch(row.research_payload),
+    commercial: parseProfileObject(row.commercial_profile, leadSchema.shape.commercial.parse),
+    delivery: parseProfileObject(row.delivery_profile, leadSchema.shape.delivery.parse),
     lastResearchedAt: row.last_researched_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -536,6 +856,8 @@ export const createMemoryUtopiaRepository = (
         ...input,
         status: "new",
         nextAction: "Run AI research to sharpen the first outreach angle.",
+        commercial: createDefaultCommercialProfile(input.priority),
+        delivery: createDefaultDeliveryProfile(),
         createdAt: timestamp,
         updatedAt: timestamp,
       });
@@ -692,7 +1014,7 @@ export const createSupabaseUtopiaRepository = ({
         client
           .from("leads")
           .select(
-            "id, name, company, website, source, priority, status, notes, next_action, research_payload, last_researched_at, created_at, updated_at",
+            "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
           )
           .eq("owner_id", ownerId),
         client
@@ -742,7 +1064,7 @@ export const createSupabaseUtopiaRepository = ({
     const { data, error } = await client
       .from("leads")
       .select(
-        "id, name, company, website, source, priority, status, notes, next_action, research_payload, last_researched_at, created_at, updated_at",
+        "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
       )
       .eq("owner_id", ownerId)
       .eq("id", leadId)
@@ -776,9 +1098,11 @@ export const createSupabaseUtopiaRepository = ({
           notes: input.notes ?? null,
           next_action: "Run AI research to sharpen the first outreach angle.",
           research_payload: {},
+          commercial_profile: createDefaultCommercialProfile(input.priority),
+          delivery_profile: createDefaultDeliveryProfile(),
         })
         .select(
-          "id, name, company, website, source, priority, status, notes, next_action, research_payload, last_researched_at, created_at, updated_at",
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
         )
         .single();
 
@@ -793,7 +1117,7 @@ export const createSupabaseUtopiaRepository = ({
         .eq("owner_id", ownerId)
         .eq("id", leadId)
         .select(
-          "id, name, company, website, source, priority, status, notes, next_action, research_payload, last_researched_at, created_at, updated_at",
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
         )
         .maybeSingle();
 
@@ -810,12 +1134,14 @@ export const createSupabaseUtopiaRepository = ({
           status: existingLead?.status === "new" ? "researching" : existingLead?.status ?? "researching",
           next_action: research.nextAction,
           research_payload: research,
+          commercial_profile: existingLead?.commercial ?? createDefaultCommercialProfile(existingLead?.priority ?? "normal"),
+          delivery_profile: existingLead?.delivery ?? createDefaultDeliveryProfile(),
           last_researched_at: nowIso(),
         })
         .eq("owner_id", ownerId)
         .eq("id", leadId)
         .select(
-          "id, name, company, website, source, priority, status, notes, next_action, research_payload, last_researched_at, created_at, updated_at",
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
         )
         .maybeSingle();
 

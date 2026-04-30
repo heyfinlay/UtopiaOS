@@ -1,7 +1,14 @@
 import { startTransition, useDeferredValue, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Radar, Search } from "lucide-react";
+import {
+  ArrowUpRight,
+  CircleDollarSign,
+  ClipboardList,
+  Radar,
+  Receipt,
+  Search,
+} from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -15,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import {
   describePriority,
+  formatCompactCurrency,
   formatDate,
   groupLeadsByStatus,
   leadColumnLabels,
@@ -68,6 +76,17 @@ export function LeadsPage() {
 
   const selectedLead =
     filteredLeads.find((lead) => lead.id === leadId) ?? filteredLeads[0] ?? null;
+  const weightedPipeline = filteredLeads.reduce(
+    (sum, lead) => sum + (lead.commercial?.weightedValue ?? 0),
+    0,
+  );
+  const outstandingInvoices = filteredLeads.reduce(
+    (sum, lead) => sum + (lead.commercial?.invoiceOutstanding ?? 0),
+    0,
+  );
+  const activeDeliveryCount = filteredLeads.filter(
+    (lead) => (lead.delivery?.completionPercent ?? 0) > 0 && lead.status !== "lost",
+  ).length;
 
   useEffect(() => {
     if (!leadId && filteredLeads[0]) {
@@ -132,6 +151,42 @@ export function LeadsPage() {
           </span>
         </div>
 
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-[1.5rem] border border-white/8 bg-white/4 p-4">
+            <div className="flex items-center gap-2 text-cyan-100/70">
+              <CircleDollarSign className="h-4 w-4" />
+              <p className="font-mono text-[0.68rem] uppercase tracking-[0.28em]">
+                Weighted Pipeline
+              </p>
+            </div>
+            <p className="mt-3 text-xl font-semibold text-white">
+              {formatCompactCurrency(weightedPipeline)}
+            </p>
+          </div>
+          <div className="rounded-[1.5rem] border border-white/8 bg-white/4 p-4">
+            <div className="flex items-center gap-2 text-amber-100/70">
+              <Receipt className="h-4 w-4" />
+              <p className="font-mono text-[0.68rem] uppercase tracking-[0.28em]">
+                Open Invoices
+              </p>
+            </div>
+            <p className="mt-3 text-xl font-semibold text-white">
+              {formatCompactCurrency(outstandingInvoices)}
+            </p>
+          </div>
+          <div className="rounded-[1.5rem] border border-white/8 bg-white/4 p-4">
+            <div className="flex items-center gap-2 text-emerald-100/70">
+              <ClipboardList className="h-4 w-4" />
+              <p className="font-mono text-[0.68rem] uppercase tracking-[0.28em]">
+                Active Delivery
+              </p>
+            </div>
+            <p className="mt-3 text-xl font-semibold text-white">
+              {activeDeliveryCount}
+            </p>
+          </div>
+        </div>
+
         <ScrollArea className="mt-5 h-[calc(100vh-21rem)] min-h-[520px] pr-4">
           <div className="space-y-5">
             {groupLeadsByStatus(filteredLeads).map((column) => (
@@ -184,6 +239,17 @@ export function LeadsPage() {
                               lead.notes ??
                               "Awaiting a sharper next action."}
                           </p>
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <span className="rounded-full border border-cyan-300/12 bg-cyan-300/8 px-3 py-1 text-xs text-cyan-100/80">
+                              {formatCompactCurrency(lead.commercial?.weightedValue ?? 0)} weighted
+                            </span>
+                            {(lead.commercial?.invoiceOutstanding ?? 0) > 0 ? (
+                              <span className="rounded-full border border-amber-200/12 bg-amber-100/8 px-3 py-1 text-xs text-amber-50">
+                                {formatCompactCurrency(lead.commercial?.invoiceOutstanding ?? 0)} unpaid
+                              </span>
+                            ) : null}
+                          </div>
 
                           <div className="mt-4 flex items-center justify-between text-xs uppercase tracking-[0.26em] text-slate-500">
                             <span>{lead.source ?? "Manual capture"}</span>
@@ -281,13 +347,50 @@ export function LeadsPage() {
 
               <Card className="rounded-[1.75rem] border-white/8 bg-white/4 text-white">
                 <CardHeader>
-                  <CardTitle className="text-lg">Next action</CardTitle>
+                  <CardTitle className="text-lg">Revenue + delivery</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm leading-7 text-slate-300">
-                  <p>
-                    {selectedLead.nextAction ??
-                      "Deploy research to generate the next move."}
-                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                      <p className="font-mono text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">
+                        Weighted
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        {formatCompactCurrency(selectedLead.commercial?.weightedValue ?? 0)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                      <p className="font-mono text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">
+                        Outstanding
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-white">
+                        {formatCompactCurrency(selectedLead.commercial?.invoiceOutstanding ?? 0)}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-mono text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">
+                      Next revenue milestone
+                    </p>
+                    <p className="mt-2">
+                      {selectedLead.commercial?.nextRevenueMilestone ??
+                        selectedLead.nextAction ??
+                        "Deploy research to generate the next move."}
+                    </p>
+                  </div>
+                  {selectedLead.delivery ? (
+                    <div className="rounded-2xl border border-emerald-300/15 bg-emerald-300/8 p-4">
+                      <p className="font-mono text-[0.72rem] uppercase tracking-[0.28em] text-emerald-100/60">
+                        Delivery track
+                      </p>
+                      <p className="mt-3 text-slate-100">
+                        {selectedLead.delivery.nextDeliverable}
+                      </p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.26em] text-emerald-100/60">
+                        {selectedLead.delivery.stage} • {selectedLead.delivery.completionPercent}% • {selectedLead.delivery.dueLabel}
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="rounded-2xl border border-emerald-300/15 bg-emerald-300/8 p-4">
                     <p className="font-mono text-[0.72rem] uppercase tracking-[0.28em] text-emerald-100/60">
                       Tactical recommendation

@@ -43,3 +43,19 @@ export function describePriority(priority: Lead["priority"]) {
       : "Normal";
 }
 
+export function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+export function formatCompactCurrency(amount: number) {
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(amount);
+}

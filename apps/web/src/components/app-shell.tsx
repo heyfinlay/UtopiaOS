@@ -1,29 +1,34 @@
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Bot,
   BriefcaseBusiness,
   ClipboardCheck,
+  DollarSign,
   LayoutDashboard,
   LibraryBig,
   Plus,
   Radar,
+  Receipt,
   ShieldCheck,
 } from "lucide-react";
 import type { PropsWithChildren } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
-import { Button } from "@/components/ui/button";
 import { CreateLeadDialog } from "@/components/create-lead-dialog";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
+import { formatCompactCurrency } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/ui-store";
 
 const navigation = [
-  { to: "/", label: "Command", icon: LayoutDashboard },
-  { to: "/leads", label: "Leads", icon: Radar },
-  { to: "/clients", label: "Clients", icon: BriefcaseBusiness },
-  { to: "/missions", label: "Missions", icon: ClipboardCheck },
-  { to: "/vault", label: "Vault", icon: LibraryBig },
-  { to: "/agents", label: "Agents", icon: Bot },
+  { to: "/", label: "Command", shortLabel: "Cmd", icon: LayoutDashboard },
+  { to: "/leads", label: "Leads", shortLabel: "Leads", icon: Radar },
+  { to: "/clients", label: "Clients", shortLabel: "Clients", icon: BriefcaseBusiness },
+  { to: "/missions", label: "Missions", shortLabel: "XP", icon: ClipboardCheck },
+  { to: "/vault", label: "Vault", shortLabel: "Vault", icon: LibraryBig },
+  { to: "/agents", label: "Agents", shortLabel: "Agent", icon: Bot },
 ] as const;
 
 export function AppShell({ children }: PropsWithChildren) {
@@ -32,38 +37,52 @@ export function AppShell({ children }: PropsWithChildren) {
   const createLeadOpen = useUiStore((state) => state.createLeadOpen);
   const setCreateLeadOpen = useUiStore((state) => state.setCreateLeadOpen);
 
+  const dashboardQuery = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: api.getDashboard,
+    refetchInterval: 20_000,
+  });
+
+  const systemStatusQuery = useQuery({
+    queryKey: ["system-status"],
+    queryFn: api.getSystemStatus,
+    refetchInterval: 20_000,
+  });
+
+  const dashboard = dashboardQuery.data;
+  const systemStatus = systemStatusQuery.data;
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(31,170,153,0.16),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(225,176,70,0.18),transparent_28%),linear-gradient(180deg,#07111a_0%,#04070c_100%)] text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-4 py-4 lg:flex-row lg:px-6">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(41,188,160,0.18),transparent_24%),radial-gradient(circle_at_top_right,rgba(240,174,64,0.14),transparent_22%),linear-gradient(180deg,#050814_0%,#08101a_42%,#04070c_100%)] text-foreground">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1680px] flex-col gap-4 px-3 py-3 md:grid md:grid-cols-[104px_minmax(0,1fr)] md:px-5 md:py-5 xl:grid-cols-[244px_minmax(0,1fr)]">
         <motion.aside
           initial={{ opacity: 0, x: -18 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex w-full flex-col rounded-[2rem] border border-white/10 bg-slate-950/75 p-4 shadow-[0_20px_80px_rgba(3,8,14,0.65)] backdrop-blur-xl lg:w-[290px]"
+          className="flex flex-col rounded-[2rem] border border-white/10 bg-slate-950/75 p-3 shadow-[0_20px_80px_rgba(3,8,14,0.65)] backdrop-blur-xl md:sticky md:top-5 md:h-[calc(100vh-2.5rem)] xl:p-4"
         >
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-200">
-              <ShieldCheck className="h-6 w-6" />
+          <div className="flex items-center gap-3 rounded-[1.6rem] border border-emerald-300/10 bg-emerald-300/6 px-3 py-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-100">
+              <ShieldCheck className="h-5 w-5" />
             </div>
-            <div>
-              <p className="font-mono text-[0.72rem] uppercase tracking-[0.3em] text-emerald-200/70">
+            <div className="min-w-0 md:hidden xl:block">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.28em] text-emerald-100/60">
                 Temporary Utopia
               </p>
-              <h1 className="text-xl font-semibold tracking-tight text-white">
+              <h1 className="mt-1 text-lg font-semibold tracking-tight text-white">
                 Utopia Command
               </h1>
             </div>
           </div>
 
-          <div className="mb-5 rounded-3xl border border-cyan-300/10 bg-cyan-300/6 p-4">
-            <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-cyan-100/60">
-              Operator State
-            </p>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              Human approval is enforced for any risky outbound, destructive, or pricing-related action.
-            </p>
-          </div>
+          <Button
+            className="mt-4 h-12 rounded-[1.35rem] bg-emerald-300 text-slate-950 hover:bg-emerald-200 md:px-0 xl:px-4"
+            onClick={() => setCreateLeadOpen(true)}
+          >
+            <Plus className="h-4 w-4 md:mr-0 xl:mr-2" />
+            <span className="md:hidden xl:inline">Create Lead</span>
+          </Button>
 
-          <nav className="space-y-2">
+          <nav className="mt-4 grid grid-cols-3 gap-2 md:grid-cols-1">
             {navigation.map((item) => {
               const Icon = item.icon;
               const active =
@@ -76,34 +95,43 @@ export function AppShell({ children }: PropsWithChildren) {
                   key={item.to}
                   to={item.to}
                   className={cn(
-                    "flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition-colors",
+                    "group flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-[1.4rem] border px-2 py-3 text-center text-xs transition-colors xl:min-h-[54px] xl:flex-row xl:justify-start xl:px-4 xl:text-sm",
                     active
                       ? "border-cyan-300/20 bg-cyan-300/12 text-white"
                       : "border-transparent bg-white/3 text-slate-400 hover:border-white/10 hover:bg-white/6 hover:text-slate-100",
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="font-medium xl:hidden">{item.shortLabel}</span>
+                  <span className="hidden xl:inline">{item.label}</span>
                 </NavLink>
               );
             })}
           </nav>
 
-          <div className="mt-auto space-y-4 pt-8">
-            <Button
-              className="h-12 w-full rounded-2xl bg-emerald-300 text-slate-950 hover:bg-emerald-200"
-              onClick={() => setCreateLeadOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Create Lead
-            </Button>
-
-            <div className="rounded-3xl border border-amber-200/10 bg-amber-100/5 p-4">
-              <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-amber-100/55">
-                Safety Rail
+          <div className="mt-auto hidden space-y-3 md:block">
+            <div className="rounded-[1.6rem] border border-white/8 bg-white/4 p-3">
+              <p className="font-mono text-[0.62rem] uppercase tracking-[0.28em] text-slate-500">
+                Cash In
               </p>
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                OpenClaw can research, draft, and enrich. Any high-risk action remains pending until you approve it.
+              <p className="mt-2 text-lg font-semibold text-white">
+                {dashboard ? formatCompactCurrency(dashboard.revenue.collected) : "…"}
+              </p>
+            </div>
+            <div className="rounded-[1.6rem] border border-white/8 bg-white/4 p-3">
+              <p className="font-mono text-[0.62rem] uppercase tracking-[0.28em] text-slate-500">
+                Open Invoices
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {dashboard ? formatCompactCurrency(dashboard.revenue.outstanding) : "…"}
+              </p>
+            </div>
+            <div className="rounded-[1.6rem] border border-amber-200/12 bg-amber-100/6 p-3">
+              <p className="font-mono text-[0.62rem] uppercase tracking-[0.28em] text-amber-100/55">
+                Approval Rail
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Revenue moves fast. Risky actions still wait for human approval.
               </p>
             </div>
           </div>
@@ -113,37 +141,66 @@ export function AppShell({ children }: PropsWithChildren) {
           <motion.header
             initial={{ opacity: 0, y: -14 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-slate-950/70 px-5 py-4 shadow-[0_20px_80px_rgba(3,8,14,0.5)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between"
+            className="rounded-[2rem] border border-white/10 bg-slate-950/70 px-4 py-4 shadow-[0_20px_80px_rgba(3,8,14,0.5)] backdrop-blur-xl"
           >
-            <div>
-              <p className="font-mono text-[0.72rem] uppercase tracking-[0.35em] text-slate-400">
-                Tactical Business RPG
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
-                {location.pathname === "/"
-                  ? "Command Center"
-                  : navigation.find((item) =>
-                      item.to === "/"
-                        ? location.pathname === "/"
-                        : location.pathname.startsWith(item.to),
-                    )?.label ?? "Module"}
-              </h2>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="rounded-2xl border border-cyan-300/10 bg-cyan-300/6 px-4 py-2">
-                <p className="font-mono text-[0.7rem] uppercase tracking-[0.3em] text-cyan-100/55">
-                  Agent Pulse
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <p className="font-mono text-[0.68rem] uppercase tracking-[0.35em] text-slate-400">
+                  Revenue Operator System
                 </p>
-                <p className="mt-1 text-sm text-slate-200">Research loop ready</p>
+                <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+                  {location.pathname === "/"
+                    ? "Command Center"
+                    : navigation.find((item) =>
+                        item.to === "/"
+                          ? location.pathname === "/"
+                          : location.pathname.startsWith(item.to),
+                      )?.label ?? "Module"}
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                  Keep the day focused on collected cash, next revenue milestones, and delivery that unlocks the next sale.
+                </p>
               </div>
-              <Button
-                variant="outline"
-                className="h-11 rounded-2xl border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
-                onClick={() => navigate("/leads")}
-              >
-                Open lead board
-              </Button>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-[1.35rem] border border-emerald-300/12 bg-emerald-300/8 px-4 py-3">
+                  <div className="flex items-center gap-2 text-emerald-100/75">
+                    <DollarSign className="h-4 w-4" />
+                    <p className="font-mono text-[0.62rem] uppercase tracking-[0.28em]">
+                      Collected
+                    </p>
+                  </div>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {dashboard ? formatCompactCurrency(dashboard.revenue.collected) : "…"}
+                  </p>
+                </div>
+                <div className="rounded-[1.35rem] border border-amber-200/12 bg-amber-100/7 px-4 py-3">
+                  <div className="flex items-center gap-2 text-amber-100/70">
+                    <Receipt className="h-4 w-4" />
+                    <p className="font-mono text-[0.62rem] uppercase tracking-[0.28em]">
+                      Outstanding
+                    </p>
+                  </div>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {dashboard ? formatCompactCurrency(dashboard.revenue.outstanding) : "…"}
+                  </p>
+                </div>
+                <div className="rounded-[1.35rem] border border-cyan-300/12 bg-cyan-300/8 px-4 py-3">
+                  <p className="font-mono text-[0.62rem] uppercase tracking-[0.28em] text-cyan-100/60">
+                    Agent Mode
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-white">
+                    {systemStatus?.agentMode ?? "loading"}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  className="h-12 rounded-[1.35rem] border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+                  onClick={() => navigate("/leads")}
+                >
+                  Open lead board
+                </Button>
+              </div>
             </div>
           </motion.header>
 
@@ -151,11 +208,7 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </div>
 
-      <CreateLeadDialog
-        open={createLeadOpen}
-        onOpenChange={setCreateLeadOpen}
-      />
+      <CreateLeadDialog open={createLeadOpen} onOpenChange={setCreateLeadOpen} />
     </div>
   );
 }
-
