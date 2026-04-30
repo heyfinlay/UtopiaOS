@@ -8,6 +8,8 @@ import {
 import {
   createLeadInputSchema,
   createLeadResponseSchema,
+  importLeadsInputSchema,
+  importLeadsResponseSchema,
   researchLeadResponseSchema,
   systemStatusSchema,
 } from "@utopia/schemas";
@@ -25,6 +27,19 @@ const xpForLeadCreation = {
   revenue: 0,
   discipline: 4,
 } as const;
+
+const scaleXpAwards = (
+  xpAwards: typeof xpForLeadCreation,
+  multiplier: number,
+) => ({
+  sales: xpAwards.sales * multiplier,
+  delivery: xpAwards.delivery * multiplier,
+  content: xpAwards.content * multiplier,
+  systems: xpAwards.systems * multiplier,
+  relationships: xpAwards.relationships * multiplier,
+  revenue: xpAwards.revenue * multiplier,
+  discipline: xpAwards.discipline * multiplier,
+});
 
 const xpForResearch = {
   sales: 36,
@@ -122,6 +137,39 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
       return context.json(
         createLeadResponseSchema.parse({
           lead,
+          activity,
+          stats,
+        }),
+        201,
+      );
+    },
+  );
+
+  app.post(
+    "/api/leads/import",
+    zValidator("json", importLeadsInputSchema),
+    async (context) => {
+      const { leads: inputLeads } = context.req.valid("json");
+      const leads = [];
+
+      for (const input of inputLeads) {
+        leads.push(await repository.createLead(input));
+      }
+
+      const xpAwards = scaleXpAwards(xpForLeadCreation, leads.length);
+      const stats = await repository.awardXp(xpAwards);
+      const activity = await repository.createActivity({
+        entityType: "system",
+        entityId: "csv-import",
+        kind: "lead.imported",
+        actor: "human",
+        message: `${leads.length} lead${leads.length === 1 ? "" : "s"} imported from CSV.`,
+        xpAwards,
+      });
+
+      return context.json(
+        importLeadsResponseSchema.parse({
+          leads,
           activity,
           stats,
         }),

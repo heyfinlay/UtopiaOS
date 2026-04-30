@@ -8,6 +8,7 @@ import {
   Radar,
   Receipt,
   Search,
+  Upload,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -39,6 +40,7 @@ export function LeadsPage() {
   const setLeadSearch = useUiStore((state) => state.setLeadSearch);
   const setPriorityFilter = useUiStore((state) => state.setPriorityFilter);
   const setCreateLeadOpen = useUiStore((state) => state.setCreateLeadOpen);
+  const setImportLeadsOpen = useUiStore((state) => state.setImportLeadsOpen);
   const deferredSearch = useDeferredValue(leadSearch);
 
   const leadsQuery = useQuery({
@@ -110,12 +112,22 @@ export function LeadsPage() {
               Tactical pipeline
             </h3>
           </div>
-          <Button
-            className="rounded-2xl bg-emerald-300 text-slate-950 hover:bg-emerald-200"
-            onClick={() => setCreateLeadOpen(true)}
-          >
-            Deploy lead
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              className="rounded-2xl border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+              onClick={() => setImportLeadsOpen(true)}
+            >
+              Import CSV
+              <Upload className="ml-2 h-4 w-4" />
+            </Button>
+            <Button
+              className="rounded-2xl bg-emerald-300 text-slate-950 hover:bg-emerald-200"
+              onClick={() => setCreateLeadOpen(true)}
+            >
+              Deploy lead
+            </Button>
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">

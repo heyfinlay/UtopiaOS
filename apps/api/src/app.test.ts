@@ -51,4 +51,47 @@ describe("createApp", () => {
     expect(payload.repositoryMode).toBe("memory");
     expect(payload.agentMode).toBe("mock");
   });
+
+  it("imports a CSV-sized lead batch through the bulk endpoint", async () => {
+    const repository = createUtopiaRepository();
+    const app = createApp(repository);
+
+    const response = await app.request("/api/leads/import", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        leads: [
+          {
+            name: "Ari Patel",
+            company: "Ledger Lane",
+            website: "https://ledgerlane.com",
+            source: "CSV list",
+            priority: "critical",
+            notes: "Manual reporting bottleneck",
+          },
+          {
+            name: "June Kline",
+            company: "Northstar Studio",
+            source: "CSV list",
+            priority: "normal",
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.leads).toHaveLength(2);
+    expect(payload.activity.kind).toBe("lead.imported");
+
+    const leadsResponse = await app.request("/api/leads");
+    const leadsPayload = await leadsResponse.json();
+    expect(
+      leadsPayload.leads.some(
+        (lead: { company: string }) => lead.company === "Ledger Lane",
+      ),
+    ).toBe(true);
+  });
 });

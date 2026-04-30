@@ -39,7 +39,25 @@ After creation, the API:
 - awards lead-creation XP
 - writes an activity event
 
-### 3. Research A Lead
+### 3. Import Leads From CSV
+
+From the Leads screen, click `Import CSV` and choose a file with these columns:
+
+- `name`
+- `company`
+- `website`
+- `source`
+- `priority`
+- `notes`
+
+Only `name` and `company` are required. The importer also accepts common aliases such as
+`contact`, `contact_name`, `business`, `url`, `channel`, `context`, and `pain_point`.
+`priority` must be `normal`, `high`, or `critical`.
+
+The app previews valid rows before import. If a row is invalid, the dialog shows the row number and
+field issue before anything is sent to the API.
+
+### 4. Research A Lead
 
 From the lead detail screen, click `Run research`.
 
@@ -53,7 +71,7 @@ The API will:
 6. award XP
 7. write activity logs
 
-### 4. Review Output
+### 5. Review Output
 
 Each researched lead includes:
 
@@ -67,7 +85,7 @@ Each researched lead includes:
 - risk flags
 - sources
 
-### 5. Check Operational Screens
+### 6. Check Operational Screens
 
 - `Missions`: derived progression and activity
 - `Clients`: researched accounts that are moving toward delivery

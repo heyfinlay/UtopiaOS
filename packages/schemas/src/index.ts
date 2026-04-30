@@ -14,9 +14,9 @@ const optionalUrlString = z.string().trim().url().optional();
 const optionalTrimmedInputString = z.preprocess(
   emptyToUndefined,
   optionalTrimmedString,
-);
+).optional();
 
-const optionalUrlInputString = z.preprocess(emptyToUndefined, optionalUrlString);
+const optionalUrlInputString = z.preprocess(emptyToUndefined, optionalUrlString).optional();
 
 export const statKeySchema = z.enum([
   "sales",
@@ -137,10 +137,16 @@ export const createLeadInputSchema = z.object({
   notes: z.preprocess(
     emptyToUndefined,
     z.string().trim().max(500).optional(),
-  ),
+  ).optional(),
 });
 
 export type CreateLeadInput = z.infer<typeof createLeadInputSchema>;
+
+export const importLeadsInputSchema = z.object({
+  leads: z.array(createLeadInputSchema).min(1).max(250),
+});
+
+export type ImportLeadsInput = z.infer<typeof importLeadsInputSchema>;
 
 export const activitySchema = z.object({
   id: z.string().trim().min(1),
@@ -273,6 +279,12 @@ export const createLeadResponseSchema = z.object({
   stats: z.array(progressStatSchema),
 });
 
+export const importLeadsResponseSchema = z.object({
+  leads: z.array(leadSchema),
+  activity: activitySchema,
+  stats: z.array(progressStatSchema),
+});
+
 export const researchLeadResponseSchema = z.object({
   lead: leadSchema,
   activity: activitySchema,
@@ -291,5 +303,6 @@ export const systemStatusSchema = z.object({
 });
 
 export type CreateLeadResponse = z.infer<typeof createLeadResponseSchema>;
+export type ImportLeadsResponse = z.infer<typeof importLeadsResponseSchema>;
 export type ResearchLeadResponse = z.infer<typeof researchLeadResponseSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;

@@ -2,6 +2,8 @@ import type {
   CreateLeadInput,
   CreateLeadResponse,
   DashboardSummary,
+  ImportLeadsInput,
+  ImportLeadsResponse,
   Lead,
   ProgressStat,
   ResearchLeadResponse,
@@ -55,6 +57,11 @@ export const api = {
   getSystemStatus: () => request<SystemStatus>("/api/system/status"),
   createLead: (payload: CreateLeadInput) =>
     request<CreateLeadResponse>("/api/leads", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  importLeads: (payload: ImportLeadsInput) =>
+    request<ImportLeadsResponse>("/api/leads/import", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

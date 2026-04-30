@@ -16,6 +16,7 @@ import type { PropsWithChildren } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
 import { CreateLeadDialog } from "@/components/create-lead-dialog";
+import { ImportLeadsDialog } from "@/components/import-leads-dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { formatCompactCurrency } from "@/lib/dashboard";
@@ -35,7 +36,9 @@ export function AppShell({ children }: PropsWithChildren) {
   const location = useLocation();
   const navigate = useNavigate();
   const createLeadOpen = useUiStore((state) => state.createLeadOpen);
+  const importLeadsOpen = useUiStore((state) => state.importLeadsOpen);
   const setCreateLeadOpen = useUiStore((state) => state.setCreateLeadOpen);
+  const setImportLeadsOpen = useUiStore((state) => state.setImportLeadsOpen);
 
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
@@ -209,6 +212,7 @@ export function AppShell({ children }: PropsWithChildren) {
       </div>
 
       <CreateLeadDialog open={createLeadOpen} onOpenChange={setCreateLeadOpen} />
+      <ImportLeadsDialog open={importLeadsOpen} onOpenChange={setImportLeadsOpen} />
     </div>
   );
 }
