@@ -88,9 +88,39 @@ Each researched lead includes:
 ### 6. Check Operational Screens
 
 - `Missions`: derived progression and activity
-- `Clients`: researched accounts that are moving toward delivery
-- `Vault`: stable prompt and safety artifacts
-- `Agents`: runtime mode, connection state, and recent runs
+- `Clients`: promoted client records, audit notes, and delivery roadmap checkpoints
+- `Vault`: persistent prompt and workflow templates with versioning
+- `Agents`: runtime mode, connection state, recent runs, and approval decisions
+
+## Operator Controls
+
+### Lead Editing
+
+The lead detail screen now supports direct updates for:
+
+- status
+- priority
+- next action
+- weighted value
+- outstanding invoice amount
+- delivery stage
+- delivery risk
+- delivery milestone
+
+### Approval Queue
+
+Use `Approval` on a lead to request a human decision before risky changes. The Agents screen shows
+pending approvals and supports approve/reject decisions with activity logging.
+
+### Client Promotion
+
+Use `Promote` on a lead to create or update a first-class client record. Client records hold audit
+notes and delivery roadmap checkpoints separately from the sales lead.
+
+### Vault Templates
+
+The Vault screen stores templates in the repository instead of static code. Editing a template body
+increments its version; archiving removes it from the active vault list.
 
 ## Runtime Checks
 

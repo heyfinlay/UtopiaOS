@@ -1,45 +1,83 @@
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { BookText, Bot, FileStack, ShieldCheck } from "lucide-react";
+import { BookText, Plus, Save } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const vaultEntries = [
-  {
-    title: "Research Prompt Contract",
-    category: "Agent",
-    icon: Bot,
-    description:
-      "The `research_lead` action expects strict JSON with overview, snapshot, fit, signals, opportunities, offer, next action, risk flags, confidence, and sources.",
-    body: `You are researching a business lead for Temporary Utopia.\nReturn strict JSON only.\nFocus on AI implementation and workflow automation opportunities.`,
-  },
-  {
-    title: "Approval Rail",
-    category: "Safety",
-    icon: ShieldCheck,
-    description:
-      "Outbound messaging, pricing changes, deletions, and outcome-state transitions stay behind explicit human approval.",
-    body: `Allowed: research, drafting, low-risk enrichment.\nApproval required: outbound, pricing, destructive changes, won/lost state transitions.`,
-  },
-  {
-    title: "Offer Framing Template",
-    category: "Delivery",
-    icon: FileStack,
-    description:
-      "A compact structure for turning research output into a concrete audit offer and clear next step.",
-    body: `1. State the operational bottleneck.\n2. Tie it to time recovery or founder leverage.\n3. Propose a short audit or automation roadmap.\n4. Ask for the lowest-friction next conversation.`,
-  },
-  {
-    title: "Operator Review Checklist",
-    category: "Workflow",
-    icon: BookText,
-    description:
-      "Use this after each research run to decide whether the result is usable, needs correction, or should remain parked.",
-    body: `Check the sources, confirm the bottleneck, assess the offer angle, review risk flags, and decide whether a human follow-up is justified.`,
-  },
-];
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { api } from "@/lib/api";
 
 export function VaultPage() {
+  const queryClient = useQueryClient();
+  const templatesQuery = useQuery({
+    queryKey: ["templates"],
+    queryFn: api.getTemplates,
+    refetchInterval: 20_000,
+  });
+  const templates = templatesQuery.data?.templates ?? [];
+  const activeTemplates = templates.filter((template) => !template.archived);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    title: "",
+    category: "Workflow",
+    body: "",
+  });
+
+  const selectedTemplate =
+    activeTemplates.find((template) => template.id === selectedId) ??
+    activeTemplates[0] ??
+    null;
+
+  useEffect(() => {
+    if (!selectedTemplate) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedId(selectedTemplate.id);
+    setDraft({
+      title: selectedTemplate.title,
+      category: selectedTemplate.category,
+      body: selectedTemplate.body,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTemplate?.id]);
+
+  const createTemplateMutation = useMutation({
+    mutationFn: (payload: typeof draft) => api.createTemplate(payload),
+    onSuccess: async ({ template }) => {
+      await queryClient.invalidateQueries({ queryKey: ["templates"] });
+      setSelectedId(template.id);
+      toast.success(`${template.title} created.`);
+    },
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedTemplate) {
+        throw new Error("No template selected.");
+      }
+
+      return api.updateTemplate(selectedTemplate.id, draft);
+    },
+    onSuccess: async ({ template }) => {
+      await queryClient.invalidateQueries({ queryKey: ["templates"] });
+      toast.success(`${template.title} saved as v${template.version}.`);
+    },
+  });
+
+  const archiveTemplateMutation = useMutation({
+    mutationFn: (templateId: string) => api.updateTemplate(templateId, { archived: true }),
+    onSuccess: async ({ template }) => {
+      await queryClient.invalidateQueries({ queryKey: ["templates"] });
+      toast.success(`${template.title} archived.`);
+    },
+  });
+
   return (
     <div className="space-y-4">
       <motion.section
@@ -47,49 +85,139 @@ export function VaultPage() {
         animate={{ opacity: 1, y: 0 }}
         className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 text-white shadow-[0_20px_80px_rgba(3,8,14,0.45)] backdrop-blur-xl"
       >
-        <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-cyan-100/55">
-          Vault
-        </p>
-        <h3 className="mt-3 text-3xl font-semibold tracking-tight">
-          Reusable operating artifacts for the human-plus-agent loop.
-        </h3>
-        <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
-          The vault is the stable layer: prompts, guardrails, and framing structures that keep the
-          workflow consistent as more actions are added to the system.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-cyan-100/55">
+              Vault
+            </p>
+            <h3 className="mt-3 text-3xl font-semibold tracking-tight">
+              Persistent operating templates.
+            </h3>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
+              Prompts, guardrails, and delivery templates now live in the repository so they can
+              evolve without code edits.
+            </p>
+          </div>
+          <Button
+            className="rounded-2xl bg-emerald-300 text-slate-950 hover:bg-emerald-200"
+            onClick={() => {
+              setSelectedId(null);
+              setDraft({
+                title: "New operating template",
+                category: "Workflow",
+                body: "Document the reusable operating pattern here.",
+              });
+              createTemplateMutation.mutate({
+                title: "New operating template",
+                category: "Workflow",
+                body: "Document the reusable operating pattern here.",
+              });
+            }}
+          >
+            New template
+            <Plus className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
       </motion.section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
-        {vaultEntries.map((entry, index) => {
-          const Icon = entry.icon;
+      <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+        <Card className="rounded-[2rem] border-white/10 bg-slate-950/70 text-white backdrop-blur-xl">
+          <CardHeader>
+            <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-slate-500">
+              Templates
+            </p>
+            <CardTitle className="mt-2 text-2xl">Versioned artifacts</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {activeTemplates.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => setSelectedId(template.id)}
+                className={`w-full rounded-[1.5rem] border p-4 text-left transition-colors ${
+                  selectedTemplate?.id === template.id
+                    ? "border-cyan-300/20 bg-cyan-300/10"
+                    : "border-white/8 bg-white/4 hover:border-white/14"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-white">{template.title}</p>
+                  <Badge className="rounded-full border border-white/10 bg-white/5 text-slate-100">
+                    v{template.version}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs uppercase tracking-[0.24em] text-slate-500">
+                  {template.category}
+                </p>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
 
-          return (
-            <motion.div
-              key={entry.title}
-              initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 * index }}
-            >
-              <Card className="h-full rounded-[2rem] border-white/10 bg-slate-950/70 text-white backdrop-blur-xl">
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <Badge className="rounded-full border border-white/10 bg-white/5 text-slate-100">
-                      {entry.category}
-                    </Badge>
-                    <Icon className="h-5 w-5 text-cyan-100/70" />
-                  </div>
-                  <CardTitle className="mt-3 text-2xl">{entry.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm leading-7 text-slate-300">{entry.description}</p>
-                  <pre className="mt-5 overflow-x-auto rounded-[1.5rem] border border-white/8 bg-slate-950/80 p-4 font-mono text-xs leading-6 text-slate-200">
-                    {entry.body}
-                  </pre>
-                </CardContent>
-              </Card>
-            </motion.div>
-          );
-        })}
+        <Card className="rounded-[2rem] border-white/10 bg-slate-950/70 text-white backdrop-blur-xl">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <div>
+              <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-slate-500">
+                Editor
+              </p>
+              <CardTitle className="mt-2 text-2xl">Template detail</CardTitle>
+            </div>
+            <BookText className="h-5 w-5 text-cyan-100/70" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-[1fr_0.45fr]">
+              <label className="space-y-2">
+                <span className="text-sm text-slate-300">Title</span>
+                <Input
+                  value={draft.title}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, title: event.target.value }))
+                  }
+                  className="h-11 rounded-2xl border-white/10 bg-white/5"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm text-slate-300">Category</span>
+                <Input
+                  value={draft.category}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, category: event.target.value }))
+                  }
+                  className="h-11 rounded-2xl border-white/10 bg-white/5"
+                />
+              </label>
+            </div>
+            <label className="space-y-2">
+              <span className="text-sm text-slate-300">Body</span>
+              <Textarea
+                value={draft.body}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, body: event.target.value }))
+                }
+                className="min-h-[340px] rounded-3xl border-white/10 bg-white/5 font-mono text-sm"
+              />
+            </label>
+            <div className="flex flex-wrap justify-end gap-2">
+              {selectedTemplate ? (
+                <Button
+                  variant="outline"
+                  className="rounded-2xl border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+                  onClick={() => archiveTemplateMutation.mutate(selectedTemplate.id)}
+                >
+                  Archive
+                </Button>
+              ) : null}
+              <Button
+                className="rounded-2xl bg-cyan-200 text-slate-950 hover:bg-cyan-100"
+                disabled={!selectedTemplate || updateTemplateMutation.isPending}
+                onClick={() => updateTemplateMutation.mutate()}
+              >
+                Save
+                <Save className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </section>
     </div>
   );

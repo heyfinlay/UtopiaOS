@@ -8,15 +8,26 @@ import {
   dashboardSummarySchema,
   type Activity,
   type AgentRun,
+  type Approval,
+  type Client,
   type CreateLeadInput,
+  type CreateTemplateInput,
   type DashboardSummary,
   type Lead,
   type Mission,
   type ProgressStat,
+  type RequestApprovalInput,
   type ResearchLeadResult,
   type StatKey,
+  type Template,
+  type UpdateClientInput,
+  type UpdateLeadInput,
+  type UpdateTemplateInput,
   leadSchema,
+  approvalSchema,
+  clientSchema,
   researchLeadResultSchema,
+  templateSchema,
 } from "@utopia/schemas";
 
 const statLabels: Record<StatKey, string> = {
@@ -33,6 +44,9 @@ type StatXpMap = Record<StatKey, number>;
 
 type UtopiaState = {
   leads: Lead[];
+  clients: Client[];
+  approvals: Approval[];
+  templates: Template[];
   activities: Activity[];
   agentRuns: AgentRun[];
   statXp: StatXpMap;
@@ -56,6 +70,7 @@ export type UtopiaRepository = {
   listLeads: () => Promise<Lead[]>;
   getLead: (leadId: string) => Promise<Lead | null>;
   createLead: (input: CreateLeadInput) => Promise<Lead>;
+  updateLead: (leadId: string, input: UpdateLeadInput) => Promise<Lead | null>;
   updateLeadStatus: (leadId: string, status: Lead["status"]) => Promise<Lead | null>;
   applyResearchToLead: (
     leadId: string,
@@ -68,6 +83,24 @@ export type UtopiaRepository = {
     runId: string,
     updates: Partial<AgentRun>,
   ) => Promise<AgentRun | null>;
+  listApprovals: () => Promise<Approval[]>;
+  createApproval: (input: RequestApprovalInput) => Promise<Approval>;
+  resolveApproval: (
+    approvalId: string,
+    decision: "approved" | "rejected",
+  ) => Promise<Approval | null>;
+  listClients: () => Promise<Client[]>;
+  promoteLeadToClient: (
+    leadId: string,
+    input?: { auditNote?: string; roadmapItem?: string },
+  ) => Promise<{ client: Client; lead: Lead } | null>;
+  updateClient: (clientId: string, input: UpdateClientInput) => Promise<Client | null>;
+  listTemplates: () => Promise<Template[]>;
+  createTemplate: (input: CreateTemplateInput) => Promise<Template>;
+  updateTemplate: (
+    templateId: string,
+    input: UpdateTemplateInput,
+  ) => Promise<Template | null>;
 };
 
 type SupabaseRepositoryOptions = {
@@ -117,6 +150,41 @@ type AgentRunRow = {
   started_at: string;
   completed_at: string | null;
   error: string | null;
+};
+
+type ApprovalRow = {
+  id: string;
+  action: Approval["action"];
+  status: Approval["status"];
+  target_type: Approval["targetType"];
+  target_id: string;
+  title: string;
+  summary: string;
+  requested_by: Approval["requestedBy"];
+  payload: unknown;
+  created_at: string;
+  resolved_at: string | null;
+};
+
+type ClientRow = {
+  id: string;
+  lead_id: string | null;
+  company: string;
+  status: Client["status"];
+  audit_notes: unknown;
+  delivery_roadmap: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+type TemplateRow = {
+  id: string;
+  title: string;
+  category: string;
+  body: string;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
 };
 
 type ProgressionStatsRow = {
@@ -448,8 +516,73 @@ const createSeedState = (): UtopiaState => {
     }),
   ];
 
+  const clients: Client[] = [
+    clientSchema.parse({
+      id: randomUUID(),
+      leadId: wonLead.id,
+      company: wonLead.company,
+      status: "active",
+      auditNotes: [
+        "Studio operations sprint signed with final handoff still in progress.",
+      ],
+      deliveryRoadmap: [
+        "Complete automation handoff and training session.",
+        "Package retainer recommendation after final invoice is collected.",
+      ],
+      createdAt: seedTime,
+      updatedAt: seedTime,
+    }),
+  ];
+
+  const approvals: Approval[] = [
+    approvalSchema.parse({
+      id: randomUUID(),
+      action: "send_outbound",
+      status: "pending",
+      targetType: "lead",
+      targetId: proposalLead.id,
+      title: "Approve proposal follow-up",
+      summary:
+        "Send a short deposit follow-up to Summit Tax Advisory before moving the deal forward.",
+      requestedBy: "agent",
+      payload: {
+        draft:
+          "Quick follow-up on the kickoff deposit so we can lock the implementation window.",
+      },
+      createdAt: seedTime,
+    }),
+  ];
+
+  const templates: Template[] = [
+    templateSchema.parse({
+      id: randomUUID(),
+      title: "Research Prompt Contract",
+      category: "Agent",
+      body:
+        "Return strict JSON only. Focus on AI implementation and workflow automation opportunities.",
+      version: 1,
+      archived: false,
+      createdAt: seedTime,
+      updatedAt: seedTime,
+    }),
+    templateSchema.parse({
+      id: randomUUID(),
+      title: "Offer Framing Template",
+      category: "Delivery",
+      body:
+        "State the bottleneck, tie it to time recovery, propose a short audit, and ask for the lowest-friction next conversation.",
+      version: 1,
+      archived: false,
+      createdAt: seedTime,
+      updatedAt: seedTime,
+    }),
+  ];
+
   return {
     leads: sortLeads([proposalLead, wonLead, researchedLead, newLead]),
+    clients,
+    approvals,
+    templates,
     activities,
     agentRuns,
     statXp: {
@@ -709,6 +842,9 @@ const buildDashboardSummary = (state: UtopiaState): DashboardSummary =>
     agentRuns: [...state.agentRuns]
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
       .slice(0, 4),
+    approvals: [...state.approvals]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 4),
     featuredLead: getFeaturedLead(state),
   });
 
@@ -809,6 +945,56 @@ const toAgentRun = (row: AgentRunRow): AgentRun =>
     error: normalizeOptionalString(row.error),
   });
 
+const parseStringArray = (payload: unknown) =>
+  Array.isArray(payload)
+    ? payload.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+
+const toApproval = (row: ApprovalRow): Approval =>
+  approvalSchema.parse({
+    id: row.id,
+    action: row.action,
+    status: row.status,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    title: row.title,
+    summary: row.summary,
+    requestedBy: row.requested_by,
+    payload: typeof row.payload === "object" && row.payload && !Array.isArray(row.payload) ? row.payload : {},
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at ?? undefined,
+  });
+
+const toClient = (row: ClientRow): Client =>
+  clientSchema.parse({
+    id: row.id,
+    leadId: normalizeOptionalString(row.lead_id),
+    company: row.company,
+    status: row.status,
+    auditNotes: parseStringArray(row.audit_notes),
+    deliveryRoadmap: parseStringArray(row.delivery_roadmap),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+
+const toTemplate = (row: TemplateRow): Template => {
+  const metadata =
+    typeof row.metadata === "object" && row.metadata && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+
+  return templateSchema.parse({
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    body: row.body,
+    version: typeof metadata.version === "number" ? metadata.version : 1,
+    archived: metadata.archived === true,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+};
+
 const mapProgressionStatsRow = (
   row: Partial<ProgressionStatsRow> | null | undefined,
 ): StatXpMap => ({
@@ -833,6 +1019,9 @@ export const createMemoryUtopiaRepository = (
 ): UtopiaRepository => {
   let state: UtopiaState = {
     leads: sortLeads(initialState.leads),
+    clients: [...initialState.clients],
+    approvals: [...initialState.approvals],
+    templates: [...initialState.templates],
     activities: [...initialState.activities],
     agentRuns: [...initialState.agentRuns],
     statXp: { ...initialState.statXp },
@@ -868,6 +1057,40 @@ export const createMemoryUtopiaRepository = (
       };
 
       return lead;
+    },
+    updateLead: async (leadId, input) => {
+      const timestamp = nowIso();
+      let updatedLead: Lead | null = null;
+
+      state = {
+        ...state,
+        leads: sortLeads(
+          state.leads.map((lead) => {
+            if (lead.id !== leadId) {
+              return lead;
+            }
+
+            updatedLead = leadSchema.parse({
+              ...lead,
+              ...input,
+              commercial: input.commercial
+                ? {
+                    ...(lead.commercial ?? createDefaultCommercialProfile(lead.priority)),
+                    ...input.commercial,
+                  }
+                : lead.commercial,
+              delivery: input.delivery
+                ? { ...(lead.delivery ?? createDefaultDeliveryProfile()), ...input.delivery }
+                : lead.delivery,
+              updatedAt: timestamp,
+            });
+
+            return updatedLead;
+          }),
+        ),
+      };
+
+      return updatedLead;
     },
     updateLeadStatus: async (leadId, status) => {
       const timestamp = nowIso();
@@ -985,6 +1208,173 @@ export const createMemoryUtopiaRepository = (
 
       return updatedRun;
     },
+    listApprovals: async () =>
+      [...state.approvals].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    createApproval: async (input) => {
+      const approval = approvalSchema.parse({
+        ...input,
+        id: randomUUID(),
+        status: "pending",
+        requestedBy: "human",
+        createdAt: nowIso(),
+      });
+
+      state = {
+        ...state,
+        approvals: [approval, ...state.approvals],
+      };
+
+      return approval;
+    },
+    resolveApproval: async (approvalId, decision) => {
+      let updatedApproval: Approval | null = null;
+
+      state = {
+        ...state,
+        approvals: state.approvals.map((approval) => {
+          if (approval.id !== approvalId) {
+            return approval;
+          }
+
+          updatedApproval = approvalSchema.parse({
+            ...approval,
+            status: decision,
+            resolvedAt: nowIso(),
+          });
+
+          return updatedApproval;
+        }),
+      };
+
+      return updatedApproval;
+    },
+    listClients: async () =>
+      [...state.clients].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    promoteLeadToClient: async (leadId, input = {}) => {
+      const lead = state.leads.find((candidate) => candidate.id === leadId);
+
+      if (!lead) {
+        return null;
+      }
+
+      const timestamp = nowIso();
+      const existingClient = state.clients.find((client) => client.leadId === leadId);
+      const auditNotes = [
+        ...(existingClient?.auditNotes ?? []),
+        input.auditNote ?? lead.research?.overview ?? lead.notes ?? "Lead promoted into client delivery.",
+      ];
+      const deliveryRoadmap = [
+        ...(existingClient?.deliveryRoadmap ?? []),
+        input.roadmapItem ??
+          lead.delivery?.nextDeliverable ??
+          lead.research?.recommendedOffer ??
+          "Confirm delivery roadmap.",
+      ];
+      const client = clientSchema.parse({
+        id: existingClient?.id ?? randomUUID(),
+        leadId,
+        company: lead.company,
+        status: existingClient?.status ?? "active",
+        auditNotes,
+        deliveryRoadmap,
+        createdAt: existingClient?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      });
+      const updatedLead = leadSchema.parse({
+        ...lead,
+        status: lead.status === "won" ? lead.status : "proposal",
+        delivery: lead.delivery ?? createDefaultDeliveryProfile(),
+        updatedAt: timestamp,
+      });
+
+      state = {
+        ...state,
+        clients: existingClient
+          ? state.clients.map((candidate) => (candidate.id === client.id ? client : candidate))
+          : [client, ...state.clients],
+        leads: sortLeads(
+          state.leads.map((candidate) =>
+            candidate.id === updatedLead.id ? updatedLead : candidate,
+          ),
+        ),
+      };
+
+      return { client, lead: updatedLead };
+    },
+    updateClient: async (clientId, input) => {
+      let updatedClient: Client | null = null;
+
+      state = {
+        ...state,
+        clients: state.clients.map((client) => {
+          if (client.id !== clientId) {
+            return client;
+          }
+
+          updatedClient = clientSchema.parse({
+            ...client,
+            status: input.status ?? client.status,
+            auditNotes: input.auditNote
+              ? [...client.auditNotes, input.auditNote]
+              : client.auditNotes,
+            deliveryRoadmap: input.roadmapItem
+              ? [...client.deliveryRoadmap, input.roadmapItem]
+              : client.deliveryRoadmap,
+            updatedAt: nowIso(),
+          });
+
+          return updatedClient;
+        }),
+      };
+
+      return updatedClient;
+    },
+    listTemplates: async () =>
+      [...state.templates].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    createTemplate: async (input) => {
+      const timestamp = nowIso();
+      const template = templateSchema.parse({
+        ...input,
+        id: randomUUID(),
+        version: 1,
+        archived: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+
+      state = {
+        ...state,
+        templates: [template, ...state.templates],
+      };
+
+      return template;
+    },
+    updateTemplate: async (templateId, input) => {
+      let updatedTemplate: Template | null = null;
+
+      state = {
+        ...state,
+        templates: state.templates.map((template) => {
+          if (template.id !== templateId) {
+            return template;
+          }
+
+          updatedTemplate = templateSchema.parse({
+            ...template,
+            ...input,
+            version:
+              input.body && input.body !== template.body
+                ? template.version + 1
+                : template.version,
+            updatedAt: nowIso(),
+          });
+
+          return updatedTemplate;
+        }),
+      };
+
+      return updatedTemplate;
+    },
   };
 };
 
@@ -1009,13 +1399,32 @@ export const createSupabaseUtopiaRepository = ({
   const loadState = async (): Promise<UtopiaState> => {
     await ensureProgressionRow();
 
-    const [{ data: leadRows, error: leadsError }, { data: activityRows, error: activitiesError }, { data: agentRunRows, error: agentRunsError }, { data: progressionRow, error: progressionError }] =
-      await Promise.all([
+    const [
+      { data: leadRows, error: leadsError },
+      { data: clientRows, error: clientsError },
+      { data: approvalRows, error: approvalsError },
+      { data: templateRows, error: templatesError },
+      { data: activityRows, error: activitiesError },
+      { data: agentRunRows, error: agentRunsError },
+      { data: progressionRow, error: progressionError },
+    ] = await Promise.all([
         client
           .from("leads")
           .select(
             "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
           )
+          .eq("owner_id", ownerId),
+        client
+          .from("clients")
+          .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
+          .eq("owner_id", ownerId),
+        client
+          .from("approvals")
+          .select("id, action, status, target_type, target_id, title, summary, requested_by, payload, created_at, resolved_at")
+          .eq("owner_id", ownerId),
+        client
+          .from("templates")
+          .select("id, title, category, body, metadata, created_at, updated_at")
           .eq("owner_id", ownerId),
         client
           .from("activities")
@@ -1035,12 +1444,18 @@ export const createSupabaseUtopiaRepository = ({
       ]);
 
     assertNoError(leadsError, "Failed to load leads.");
+    assertNoError(clientsError, "Failed to load clients.");
+    assertNoError(approvalsError, "Failed to load approvals.");
+    assertNoError(templatesError, "Failed to load templates.");
     assertNoError(activitiesError, "Failed to load activities.");
     assertNoError(agentRunsError, "Failed to load agent runs.");
     assertNoError(progressionError, "Failed to load progression stats.");
 
     return {
       leads: sortLeads(((leadRows ?? []) as LeadRow[]).map(toLead)),
+      clients: ((clientRows ?? []) as ClientRow[]).map(toClient),
+      approvals: ((approvalRows ?? []) as ApprovalRow[]).map(toApproval),
+      templates: ((templateRows ?? []) as TemplateRow[]).map(toTemplate),
       activities: ((activityRows ?? []) as ActivityRow[]).map(toActivity),
       agentRuns: ((agentRunRows ?? []) as AgentRunRow[]).map(toAgentRun),
       statXp: mapProgressionStatsRow(progressionRow as ProgressionStatsRow | null),
@@ -1109,6 +1524,50 @@ export const createSupabaseUtopiaRepository = ({
       assertNoError(error, "Failed to create lead.");
 
       return toLead(data as LeadRow);
+    },
+    updateLead: async (leadId, input) => {
+      const existingLead = await getLeadById(leadId);
+
+      if (!existingLead) {
+        return null;
+      }
+
+      const payload: Record<string, unknown> = {};
+
+      if (typeof input.name === "string") payload.name = input.name;
+      if (typeof input.company === "string") payload.company = input.company;
+      if ("website" in input) payload.website = input.website ?? null;
+      if ("source" in input) payload.source = input.source ?? null;
+      if (input.priority) payload.priority = input.priority;
+      if (input.status) payload.status = input.status;
+      if ("notes" in input) payload.notes = input.notes ?? null;
+      if ("nextAction" in input) payload.next_action = input.nextAction ?? null;
+      if (input.commercial) {
+        payload.commercial_profile = {
+          ...(existingLead.commercial ?? createDefaultCommercialProfile(existingLead.priority)),
+          ...input.commercial,
+        };
+      }
+      if (input.delivery) {
+        payload.delivery_profile = {
+          ...(existingLead.delivery ?? createDefaultDeliveryProfile()),
+          ...input.delivery,
+        };
+      }
+
+      const { data, error } = await client
+        .from("leads")
+        .update(payload)
+        .eq("owner_id", ownerId)
+        .eq("id", leadId)
+        .select(
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+        )
+        .maybeSingle();
+
+      assertNoError(error, "Failed to update lead.");
+
+      return data ? toLead(data as LeadRow) : null;
     },
     updateLeadStatus: async (leadId, status) => {
       const { data, error } = await client
@@ -1254,6 +1713,194 @@ export const createSupabaseUtopiaRepository = ({
       assertNoError(error, "Failed to update agent run.");
 
       return data ? toAgentRun(data as AgentRunRow) : null;
+    },
+    listApprovals: async () => (await loadState()).approvals,
+    createApproval: async (input) => {
+      const { data, error } = await client
+        .from("approvals")
+        .insert({
+          id: randomUUID(),
+          owner_id: ownerId,
+          action: input.action,
+          status: "pending",
+          target_type: input.targetType,
+          target_id: input.targetId,
+          title: input.title,
+          summary: input.summary,
+          requested_by: "human",
+          payload: input.payload,
+        })
+        .select("id, action, status, target_type, target_id, title, summary, requested_by, payload, created_at, resolved_at")
+        .single();
+
+      assertNoError(error, "Failed to create approval.");
+
+      return toApproval(data as ApprovalRow);
+    },
+    resolveApproval: async (approvalId, decision) => {
+      const { data, error } = await client
+        .from("approvals")
+        .update({ status: decision, resolved_at: nowIso() })
+        .eq("owner_id", ownerId)
+        .eq("id", approvalId)
+        .select("id, action, status, target_type, target_id, title, summary, requested_by, payload, created_at, resolved_at")
+        .maybeSingle();
+
+      assertNoError(error, "Failed to resolve approval.");
+
+      return data ? toApproval(data as ApprovalRow) : null;
+    },
+    listClients: async () => (await loadState()).clients,
+    promoteLeadToClient: async (leadId, input = {}) => {
+      const lead = await getLeadById(leadId);
+
+      if (!lead) {
+        return null;
+      }
+
+      const { data: existingClientRow, error: existingError } = await client
+        .from("clients")
+        .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
+        .eq("owner_id", ownerId)
+        .eq("lead_id", leadId)
+        .maybeSingle();
+
+      assertNoError(existingError, "Failed to inspect existing client.");
+
+      const existingClient = existingClientRow ? toClient(existingClientRow as ClientRow) : null;
+      const auditNotes = [
+        ...(existingClient?.auditNotes ?? []),
+        input.auditNote ?? lead.research?.overview ?? lead.notes ?? "Lead promoted into client delivery.",
+      ];
+      const deliveryRoadmap = [
+        ...(existingClient?.deliveryRoadmap ?? []),
+        input.roadmapItem ??
+          lead.delivery?.nextDeliverable ??
+          lead.research?.recommendedOffer ??
+          "Confirm delivery roadmap.",
+      ];
+      const payload = {
+        id: existingClient?.id ?? randomUUID(),
+        owner_id: ownerId,
+        lead_id: leadId,
+        company: lead.company,
+        status: existingClient?.status ?? "active",
+        audit_notes: auditNotes,
+        delivery_roadmap: deliveryRoadmap,
+      };
+      const { data: clientRow, error: clientError } = await client
+        .from("clients")
+        .upsert(payload, { onConflict: "id" })
+        .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
+        .single();
+
+      assertNoError(clientError, "Failed to promote lead to client.");
+
+      const { data: updatedLeadRow, error: leadError } = await client
+        .from("leads")
+        .update({
+          status: lead.status === "won" ? "won" : "proposal",
+          delivery_profile: lead.delivery ?? createDefaultDeliveryProfile(),
+        })
+        .eq("owner_id", ownerId)
+        .eq("id", leadId)
+        .select(
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+        )
+        .maybeSingle();
+
+      assertNoError(leadError, "Failed to update promoted lead.");
+
+      const updatedLead = updatedLeadRow ? toLead(updatedLeadRow as LeadRow) : lead;
+
+      return { client: toClient(clientRow as ClientRow), lead: updatedLead };
+    },
+    updateClient: async (clientId, input) => {
+      const { data: currentRow, error: currentError } = await client
+        .from("clients")
+        .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
+        .eq("owner_id", ownerId)
+        .eq("id", clientId)
+        .maybeSingle();
+
+      assertNoError(currentError, "Failed to load client before update.");
+
+      if (!currentRow) {
+        return null;
+      }
+
+      const current = toClient(currentRow as ClientRow);
+      const { data, error } = await client
+        .from("clients")
+        .update({
+          status: input.status ?? current.status,
+          audit_notes: input.auditNote ? [...current.auditNotes, input.auditNote] : current.auditNotes,
+          delivery_roadmap: input.roadmapItem
+            ? [...current.deliveryRoadmap, input.roadmapItem]
+            : current.deliveryRoadmap,
+        })
+        .eq("owner_id", ownerId)
+        .eq("id", clientId)
+        .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
+        .maybeSingle();
+
+      assertNoError(error, "Failed to update client.");
+
+      return data ? toClient(data as ClientRow) : null;
+    },
+    listTemplates: async () => (await loadState()).templates,
+    createTemplate: async (input) => {
+      const { data, error } = await client
+        .from("templates")
+        .insert({
+          id: randomUUID(),
+          owner_id: ownerId,
+          title: input.title,
+          category: input.category,
+          body: input.body,
+          metadata: { version: 1, archived: false },
+        })
+        .select("id, title, category, body, metadata, created_at, updated_at")
+        .single();
+
+      assertNoError(error, "Failed to create template.");
+
+      return toTemplate(data as TemplateRow);
+    },
+    updateTemplate: async (templateId, input) => {
+      const { data: currentRow, error: currentError } = await client
+        .from("templates")
+        .select("id, title, category, body, metadata, created_at, updated_at")
+        .eq("owner_id", ownerId)
+        .eq("id", templateId)
+        .maybeSingle();
+
+      assertNoError(currentError, "Failed to load template before update.");
+
+      if (!currentRow) {
+        return null;
+      }
+
+      const current = toTemplate(currentRow as TemplateRow);
+      const { data, error } = await client
+        .from("templates")
+        .update({
+          title: input.title ?? current.title,
+          category: input.category ?? current.category,
+          body: input.body ?? current.body,
+          metadata: {
+            version: input.body && input.body !== current.body ? current.version + 1 : current.version,
+            archived: input.archived ?? current.archived,
+          },
+        })
+        .eq("owner_id", ownerId)
+        .eq("id", templateId)
+        .select("id, title, category, body, metadata, created_at, updated_at")
+        .maybeSingle();
+
+      assertNoError(error, "Failed to update template.");
+
+      return data ? toTemplate(data as TemplateRow) : null;
     },
   };
 };

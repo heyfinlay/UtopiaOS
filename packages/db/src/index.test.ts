@@ -58,4 +58,50 @@ describe("createUtopiaRepository", () => {
     );
     expect(stats.find((stat) => stat.key === "sales")?.xp).toBeGreaterThan(0);
   });
+
+  it("updates leads, manages approvals, promotes clients, and versions templates", async () => {
+    const repository = createUtopiaRepository();
+    const lead = await repository.createLead({
+      name: "Tessa",
+      company: "Bright Ops",
+      priority: "high",
+      source: "Referral",
+    });
+
+    const updatedLead = await repository.updateLead(lead.id, {
+      status: "qualified",
+      nextAction: "Book a paid workflow audit.",
+      commercial: {
+        weightedValue: 7_500,
+        invoiceOutstanding: 0,
+        nextRevenueMilestone: "Convert into audit scope.",
+      },
+    });
+    const approval = await repository.createApproval({
+      action: "change_lead_status",
+      targetType: "lead",
+      targetId: lead.id,
+      title: "Approve status change",
+      summary: "Move the account into proposal.",
+      payload: { status: "proposal" },
+    });
+    const resolvedApproval = await repository.resolveApproval(approval.id, "approved");
+    const promoted = await repository.promoteLeadToClient(lead.id, {
+      auditNote: "Strong delivery fit.",
+      roadmapItem: "Scope first implementation sprint.",
+    });
+    const template = await repository.createTemplate({
+      title: "Follow-up prompt",
+      category: "Sales",
+      body: "Draft a short follow-up that asks for the next call.",
+    });
+    const updatedTemplate = await repository.updateTemplate(template.id, {
+      body: "Draft a short follow-up that asks for the next call and names the bottleneck.",
+    });
+
+    expect(updatedLead?.status).toBe("qualified");
+    expect(resolvedApproval?.status).toBe("approved");
+    expect(promoted?.client.company).toBe("Bright Ops");
+    expect(updatedTemplate?.version).toBe(2);
+  });
 });

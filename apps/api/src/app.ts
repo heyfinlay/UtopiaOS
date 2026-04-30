@@ -6,12 +6,26 @@ import {
   runResearchLeadAction,
 } from "@utopia/agent-actions";
 import {
+  approvalResponseSchema,
+  approvalsResponseSchema,
+  clientsResponseSchema,
+  clientResponseSchema,
+  createTemplateInputSchema,
   createLeadInputSchema,
   createLeadResponseSchema,
   importLeadsInputSchema,
   importLeadsResponseSchema,
+  promoteLeadToClientInputSchema,
   researchLeadResponseSchema,
+  requestApprovalInputSchema,
+  resolveApprovalInputSchema,
   systemStatusSchema,
+  templateResponseSchema,
+  templatesResponseSchema,
+  updateClientInputSchema,
+  updateLeadInputSchema,
+  updateLeadResponseSchema,
+  updateTemplateInputSchema,
 } from "@utopia/schemas";
 import { type UtopiaRepository, utopiaRepository } from "@utopia/db";
 import { Hono } from "hono";
@@ -51,8 +65,30 @@ const xpForResearch = {
   discipline: 6,
 } as const;
 
+const zeroXp = {
+  sales: 0,
+  delivery: 0,
+  content: 0,
+  systems: 0,
+  relationships: 0,
+  revenue: 0,
+  discipline: 0,
+} as const;
+
 const paramsSchema = z.object({
   leadId: z.string().trim().min(1),
+});
+
+const approvalParamsSchema = z.object({
+  approvalId: z.string().trim().min(1),
+});
+
+const clientParamsSchema = z.object({
+  clientId: z.string().trim().min(1),
+});
+
+const templateParamsSchema = z.object({
+  templateId: z.string().trim().min(1),
 });
 
 export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
@@ -88,6 +124,30 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
       leads: await repository.listLeads(),
       stats: await repository.listProgressStats(),
     }),
+  );
+
+  app.get("/api/approvals", async (context) =>
+    context.json(
+      approvalsResponseSchema.parse({
+        approvals: await repository.listApprovals(),
+      }),
+    ),
+  );
+
+  app.get("/api/clients", async (context) =>
+    context.json(
+      clientsResponseSchema.parse({
+        clients: await repository.listClients(),
+      }),
+    ),
+  );
+
+  app.get("/api/templates", async (context) =>
+    context.json(
+      templatesResponseSchema.parse({
+        templates: await repository.listTemplates(),
+      }),
+    ),
   );
 
   app.get("/api/system/status", (context) =>
@@ -159,8 +219,8 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
       const xpAwards = scaleXpAwards(xpForLeadCreation, leads.length);
       const stats = await repository.awardXp(xpAwards);
       const activity = await repository.createActivity({
-        entityType: "system",
-        entityId: "csv-import",
+        entityType: "lead",
+        entityId: leads[0].id,
         kind: "lead.imported",
         actor: "human",
         message: `${leads.length} lead${leads.length === 1 ? "" : "s"} imported from CSV.`,
@@ -172,6 +232,70 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
           leads,
           activity,
           stats,
+        }),
+        201,
+      );
+    },
+  );
+
+  app.patch(
+    "/api/leads/:leadId",
+    zValidator("param", paramsSchema),
+    zValidator("json", updateLeadInputSchema),
+    async (context) => {
+      const { leadId } = context.req.valid("param");
+      const lead = await repository.updateLead(leadId, context.req.valid("json"));
+
+      if (!lead) {
+        return context.json({ error: "Lead not found." }, 404);
+      }
+
+      const activity = await repository.createActivity({
+        entityType: "lead",
+        entityId: lead.id,
+        kind: "lead.updated",
+        actor: "human",
+        message: `Lead updated for ${lead.company}.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        updateLeadResponseSchema.parse({
+          lead,
+          activity,
+        }),
+      );
+    },
+  );
+
+  app.post(
+    "/api/leads/:leadId/promote",
+    zValidator("param", paramsSchema),
+    zValidator("json", promoteLeadToClientInputSchema),
+    async (context) => {
+      const { leadId } = context.req.valid("param");
+      const promoted = await repository.promoteLeadToClient(
+        leadId,
+        context.req.valid("json"),
+      );
+
+      if (!promoted) {
+        return context.json({ error: "Lead not found." }, 404);
+      }
+
+      const activity = await repository.createActivity({
+        entityType: "lead",
+        entityId: promoted.lead.id,
+        kind: "client.promoted",
+        actor: "human",
+        message: `${promoted.client.company} promoted into client delivery.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        clientResponseSchema.parse({
+          ...promoted,
+          activity,
         }),
         201,
       );
@@ -274,6 +398,148 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
           500,
         );
       }
+    },
+  );
+
+  app.post(
+    "/api/approvals",
+    zValidator("json", requestApprovalInputSchema),
+    async (context) => {
+      const approval = await repository.createApproval(context.req.valid("json"));
+      const activity = await repository.createActivity({
+        entityType: approval.targetType === "lead" ? "lead" : "system",
+        entityId: approval.targetId,
+        kind: "approval.requested",
+        actor: "human",
+        message: `Approval requested: ${approval.title}.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        approvalResponseSchema.parse({
+          approval,
+          activity,
+        }),
+        201,
+      );
+    },
+  );
+
+  app.post(
+    "/api/approvals/:approvalId/resolve",
+    zValidator("param", approvalParamsSchema),
+    zValidator("json", resolveApprovalInputSchema),
+    async (context) => {
+      const { approvalId } = context.req.valid("param");
+      const { decision } = context.req.valid("json");
+      const approval = await repository.resolveApproval(approvalId, decision);
+
+      if (!approval) {
+        return context.json({ error: "Approval not found." }, 404);
+      }
+
+      const activity = await repository.createActivity({
+        entityType: approval.targetType === "lead" ? "lead" : "system",
+        entityId: approval.targetId,
+        kind: `approval.${decision}`,
+        actor: "human",
+        message: `${approval.title} ${decision}.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        approvalResponseSchema.parse({
+          approval,
+          activity,
+        }),
+      );
+    },
+  );
+
+  app.patch(
+    "/api/clients/:clientId",
+    zValidator("param", clientParamsSchema),
+    zValidator("json", updateClientInputSchema),
+    async (context) => {
+      const { clientId } = context.req.valid("param");
+      const client = await repository.updateClient(clientId, context.req.valid("json"));
+
+      if (!client) {
+        return context.json({ error: "Client not found." }, 404);
+      }
+
+      const activity = await repository.createActivity({
+        entityType: "system",
+        entityId: client.id,
+        kind: "client.updated",
+        actor: "human",
+        message: `${client.company} client record updated.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        clientResponseSchema.parse({
+          client,
+          activity,
+        }),
+      );
+    },
+  );
+
+  app.post(
+    "/api/templates",
+    zValidator("json", createTemplateInputSchema),
+    async (context) => {
+      const template = await repository.createTemplate(context.req.valid("json"));
+      const activity = await repository.createActivity({
+        entityType: "system",
+        entityId: template.id,
+        kind: "template.created",
+        actor: "human",
+        message: `${template.title} added to the vault.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        templateResponseSchema.parse({
+          template,
+          activity,
+        }),
+        201,
+      );
+    },
+  );
+
+  app.patch(
+    "/api/templates/:templateId",
+    zValidator("param", templateParamsSchema),
+    zValidator("json", updateTemplateInputSchema),
+    async (context) => {
+      const { templateId } = context.req.valid("param");
+      const template = await repository.updateTemplate(
+        templateId,
+        context.req.valid("json"),
+      );
+
+      if (!template) {
+        return context.json({ error: "Template not found." }, 404);
+      }
+
+      const activity = await repository.createActivity({
+        entityType: "system",
+        entityId: template.id,
+        kind: "template.updated",
+        actor: "human",
+        message: `${template.title} updated in the vault.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        templateResponseSchema.parse({
+          template,
+          activity,
+        }),
+      );
     },
   );
 

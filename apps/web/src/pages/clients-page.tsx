@@ -1,18 +1,36 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { ArrowUpRight, BriefcaseBusiness, ShieldAlert, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api } from "@/lib/api";
-import { describePriority, formatDate } from "@/lib/dashboard";
+import { formatDate } from "@/lib/dashboard";
 
 export function ClientsPage() {
+  const queryClient = useQueryClient();
   const leadsQuery = useQuery({
     queryKey: ["leads"],
     queryFn: api.getLeads,
     refetchInterval: 20_000,
+  });
+  const clientsQuery = useQuery({
+    queryKey: ["clients"],
+    queryFn: api.getClients,
+    refetchInterval: 20_000,
+  });
+  const updateClientMutation = useMutation({
+    mutationFn: (clientId: string) =>
+      api.updateClient(clientId, {
+        roadmapItem: "Review the next delivery checkpoint and update client status.",
+      }),
+    onSuccess: async ({ client }) => {
+      await queryClient.invalidateQueries({ queryKey: ["clients"] });
+      toast.success(`${client.company} roadmap updated.`);
+    },
   });
 
   const leads = leadsQuery.data?.leads ?? [];
@@ -22,6 +40,7 @@ export function ClientsPage() {
   const deliveryCandidates = clientReadyLeads.filter((lead) =>
     ["researching", "qualified", "proposal"].includes(lead.status),
   );
+  const clients = clientsQuery.data?.clients ?? [];
 
   return (
     <div className="space-y-4">
@@ -60,7 +79,7 @@ export function ClientsPage() {
               <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-slate-500">
                 Delivery Queue
               </p>
-              <p className="mt-3 text-3xl font-semibold">{deliveryCandidates.length}</p>
+              <p className="mt-3 text-3xl font-semibold">{clients.length}</p>
             </div>
             <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
               <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-slate-500">
@@ -114,52 +133,57 @@ export function ClientsPage() {
           <CardContent>
             <ScrollArea className="h-[520px] pr-4">
               <div className="space-y-4">
-                {clientReadyLeads.length === 0 ? (
+                {clients.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-white/10 bg-white/3 p-5 text-sm text-slate-400">
-                    Research a lead to surface a delivery candidate.
+                    Promote a lead to create the first client record.
                   </div>
                 ) : (
-                  clientReadyLeads.map((lead) => (
+                  clients.map((client) => (
                     <div
-                      key={lead.id}
+                      key={client.id}
                       className="rounded-[1.75rem] border border-white/8 bg-white/4 p-5"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <p className="text-lg font-semibold text-white">{lead.company}</p>
+                          <p className="text-lg font-semibold text-white">{client.company}</p>
                           <p className="mt-1 text-sm text-slate-400">
-                            {lead.name} • {describePriority(lead.priority)}
+                            {client.auditNotes.length} audit note{client.auditNotes.length === 1 ? "" : "s"} • {client.deliveryRoadmap.length} roadmap item{client.deliveryRoadmap.length === 1 ? "" : "s"}
                           </p>
                         </div>
                         <Badge className="rounded-full border border-white/10 bg-white/5 text-slate-100">
-                          {lead.status}
+                          {client.status}
                         </Badge>
                       </div>
 
                       <p className="mt-4 text-sm leading-7 text-slate-300">
-                        {lead.research?.recommendedOffer ??
-                          lead.nextAction ??
-                          "Awaiting a shaped offer before handoff."}
+                        {client.deliveryRoadmap[client.deliveryRoadmap.length - 1] ??
+                          "Confirm the next client delivery step."}
                       </p>
 
-                      {lead.research?.riskFlags?.length ? (
-                        <div className="mt-4 rounded-2xl border border-amber-200/15 bg-amber-100/8 p-4">
+                      {client.auditNotes.length ? (
+                        <div className="mt-4 rounded-2xl border border-cyan-200/15 bg-cyan-100/8 p-4">
                           <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-amber-100/60">
-                            Risk Flags
+                            Audit Notes
                           </p>
                           <div className="mt-3 space-y-2">
-                            {lead.research.riskFlags.map((flag) => (
-                              <p key={flag} className="text-sm leading-6 text-amber-50">
-                                {flag}
+                            {client.auditNotes.slice(-2).map((note) => (
+                              <p key={note} className="text-sm leading-6 text-cyan-50">
+                                {note}
                               </p>
                             ))}
                           </div>
                         </div>
                       ) : null}
 
-                      <div className="mt-4 flex items-center justify-between text-xs uppercase tracking-[0.26em] text-slate-500">
-                        <span>{lead.source ?? "Manual capture"}</span>
-                        <span>{formatDate(lead.updatedAt)}</span>
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs uppercase tracking-[0.26em] text-slate-500">
+                        <span>{formatDate(client.updatedAt)}</span>
+                        <Button
+                          variant="outline"
+                          className="rounded-2xl border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+                          onClick={() => updateClientMutation.mutate(client.id)}
+                        >
+                          Add checkpoint
+                        </Button>
                       </div>
                     </div>
                   ))
@@ -177,7 +201,7 @@ export function ClientsPage() {
             <CardTitle className="mt-2 text-2xl">What the agent already surfaced</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {clientReadyLeads.slice(0, 4).map((lead) => (
+            {deliveryCandidates.slice(0, 4).map((lead) => (
               <div key={lead.id} className="rounded-[1.75rem] border border-white/8 bg-white/4 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-white">{lead.company}</p>

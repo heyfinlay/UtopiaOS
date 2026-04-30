@@ -1,14 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Activity, Bot, Database, ShieldCheck, TerminalSquare } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/dashboard";
 
 export function AgentsPage() {
+  const queryClient = useQueryClient();
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
     queryFn: api.getDashboard,
@@ -19,6 +22,29 @@ export function AgentsPage() {
     queryKey: ["system-status"],
     queryFn: api.getSystemStatus,
     refetchInterval: 20_000,
+  });
+
+  const approvalsQuery = useQuery({
+    queryKey: ["approvals"],
+    queryFn: api.getApprovals,
+    refetchInterval: 20_000,
+  });
+
+  const resolveApprovalMutation = useMutation({
+    mutationFn: ({
+      approvalId,
+      decision,
+    }: {
+      approvalId: string;
+      decision: "approved" | "rejected";
+    }) => api.resolveApproval(approvalId, decision),
+    onSuccess: async ({ approval }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["approvals"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      toast.success(`${approval.title} ${approval.status}.`);
+    },
   });
 
   const dashboard = dashboardQuery.data;
@@ -120,6 +146,70 @@ export function AgentsPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card className="rounded-[2rem] border-white/10 bg-slate-950/70 text-white backdrop-blur-xl">
+          <CardHeader>
+            <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-slate-500">
+              Approval Queue
+            </p>
+            <CardTitle className="mt-2 text-2xl">Human decisions before risk</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(approvalsQuery.data?.approvals ?? dashboard?.approvals ?? []).map((approval) => (
+              <div
+                key={approval.id}
+                className="rounded-[1.75rem] border border-white/8 bg-white/4 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-white">{approval.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      {approval.summary}
+                    </p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">
+                      {approval.action} • {approval.status}
+                    </p>
+                  </div>
+                  <Badge className="rounded-full border border-white/10 bg-white/5 text-slate-100">
+                    {formatDate(approval.createdAt)}
+                  </Badge>
+                </div>
+                {approval.status === "pending" ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      className="rounded-2xl bg-emerald-300 text-slate-950 hover:bg-emerald-200"
+                      onClick={() =>
+                        resolveApprovalMutation.mutate({
+                          approvalId: approval.id,
+                          decision: "approved",
+                        })
+                      }
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="rounded-2xl border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+                      onClick={() =>
+                        resolveApprovalMutation.mutate({
+                          approvalId: approval.id,
+                          decision: "rejected",
+                        })
+                      }
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {(approvalsQuery.data?.approvals ?? dashboard?.approvals ?? []).length === 0 ? (
+              <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-white/3 p-5 text-sm text-slate-400">
+                No approvals are waiting.
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
         <Card className="rounded-[2rem] border-white/10 bg-slate-950/70 text-white backdrop-blur-xl">
           <CardHeader>
             <p className="font-mono text-[0.72rem] uppercase tracking-[0.32em] text-slate-500">

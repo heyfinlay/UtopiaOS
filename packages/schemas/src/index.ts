@@ -17,6 +17,10 @@ const optionalTrimmedInputString = z.preprocess(
 ).optional();
 
 const optionalUrlInputString = z.preprocess(emptyToUndefined, optionalUrlString).optional();
+const optionalNonNegativeNumberInput = z.preprocess(
+  emptyToUndefined,
+  z.coerce.number().nonnegative().optional(),
+).optional();
 
 export const statKeySchema = z.enum([
   "sales",
@@ -108,6 +112,27 @@ export const deliveryProfileSchema = z.object({
 
 export type DeliveryProfile = z.infer<typeof deliveryProfileSchema>;
 
+export const commercialProfileInputSchema = z.object({
+  pipelineValue: optionalNonNegativeNumberInput,
+  weightedValue: optionalNonNegativeNumberInput,
+  closedValue: optionalNonNegativeNumberInput,
+  invoiceIssued: optionalNonNegativeNumberInput,
+  invoiceOutstanding: optionalNonNegativeNumberInput,
+  clientSavingsValue: optionalNonNegativeNumberInput,
+  nextRevenueMilestone: optionalTrimmedInputString,
+});
+
+export const deliveryProfileInputSchema = z.object({
+  stage: deliveryStageSchema.optional(),
+  completionPercent: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().min(0).max(100).optional(),
+  ).optional(),
+  nextDeliverable: optionalTrimmedInputString,
+  dueLabel: optionalTrimmedInputString,
+  riskLevel: z.enum(["low", "medium", "high"]).optional(),
+});
+
 export const leadSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(2),
@@ -148,6 +173,24 @@ export const importLeadsInputSchema = z.object({
 
 export type ImportLeadsInput = z.infer<typeof importLeadsInputSchema>;
 
+export const updateLeadInputSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  company: z.string().trim().min(2).max(120).optional(),
+  website: optionalUrlInputString,
+  source: optionalTrimmedInputString,
+  priority: leadPrioritySchema.optional(),
+  status: leadStatusSchema.optional(),
+  notes: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(500).optional(),
+  ).optional(),
+  nextAction: optionalTrimmedInputString,
+  commercial: commercialProfileInputSchema.optional(),
+  delivery: deliveryProfileInputSchema.optional(),
+});
+
+export type UpdateLeadInput = z.infer<typeof updateLeadInputSchema>;
+
 export const activitySchema = z.object({
   id: z.string().trim().min(1),
   entityType: z.enum(["lead", "agent_run", "system"]),
@@ -177,6 +220,108 @@ export const agentRunSchema = z.object({
 });
 
 export type AgentRun = z.infer<typeof agentRunSchema>;
+
+export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
+
+export const approvalActionSchema = z.enum([
+  "change_lead_status",
+  "promote_client",
+  "send_outbound",
+  "update_pricing",
+]);
+
+export const approvalSchema = z.object({
+  id: z.string().trim().min(1),
+  action: approvalActionSchema,
+  status: approvalStatusSchema,
+  targetType: z.enum(["lead", "client"]),
+  targetId: z.string().trim().min(1),
+  title: z.string().trim().min(2),
+  summary: z.string().trim().min(2),
+  requestedBy: z.enum(["human", "agent", "system"]),
+  payload: z.record(z.string(), z.unknown()),
+  createdAt: z.string().datetime(),
+  resolvedAt: z.string().datetime().optional(),
+});
+
+export type Approval = z.infer<typeof approvalSchema>;
+
+export const requestApprovalInputSchema = z.object({
+  action: approvalActionSchema,
+  targetType: z.enum(["lead", "client"]),
+  targetId: z.string().trim().min(1),
+  title: z.string().trim().min(2).max(120),
+  summary: z.string().trim().min(2).max(500),
+  payload: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type RequestApprovalInput = z.infer<typeof requestApprovalInputSchema>;
+
+export const resolveApprovalInputSchema = z.object({
+  decision: z.enum(["approved", "rejected"]),
+});
+
+export type ResolveApprovalInput = z.infer<typeof resolveApprovalInputSchema>;
+
+export const clientStatusSchema = z.enum(["active", "paused", "completed"]);
+
+export const clientSchema = z.object({
+  id: z.string().trim().min(1),
+  leadId: z.string().trim().min(1).optional(),
+  company: z.string().trim().min(2),
+  status: clientStatusSchema,
+  auditNotes: z.array(z.string().trim().min(2)),
+  deliveryRoadmap: z.array(z.string().trim().min(2)),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type Client = z.infer<typeof clientSchema>;
+
+export const promoteLeadToClientInputSchema = z.object({
+  auditNote: optionalTrimmedInputString,
+  roadmapItem: optionalTrimmedInputString,
+});
+
+export type PromoteLeadToClientInput = z.infer<typeof promoteLeadToClientInputSchema>;
+
+export const updateClientInputSchema = z.object({
+  status: clientStatusSchema.optional(),
+  auditNote: optionalTrimmedInputString,
+  roadmapItem: optionalTrimmedInputString,
+});
+
+export type UpdateClientInput = z.infer<typeof updateClientInputSchema>;
+
+export const templateSchema = z.object({
+  id: z.string().trim().min(1),
+  title: z.string().trim().min(2),
+  category: z.string().trim().min(2),
+  body: z.string().trim().min(8),
+  version: z.number().int().positive(),
+  archived: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type Template = z.infer<typeof templateSchema>;
+
+export const createTemplateInputSchema = z.object({
+  title: z.string().trim().min(2).max(120),
+  category: z.string().trim().min(2).max(60),
+  body: z.string().trim().min(8).max(5_000),
+});
+
+export type CreateTemplateInput = z.infer<typeof createTemplateInputSchema>;
+
+export const updateTemplateInputSchema = z.object({
+  title: z.string().trim().min(2).max(120).optional(),
+  category: z.string().trim().min(2).max(60).optional(),
+  body: z.string().trim().min(8).max(5_000).optional(),
+  archived: z.boolean().optional(),
+});
+
+export type UpdateTemplateInput = z.infer<typeof updateTemplateInputSchema>;
 
 export const missionSchema = z.object({
   id: z.string().trim().min(1),
@@ -268,6 +413,7 @@ export const dashboardSummarySchema = z.object({
   stats: z.array(progressStatSchema).min(1),
   recentActivity: z.array(activitySchema),
   agentRuns: z.array(agentRunSchema),
+  approvals: z.array(approvalSchema),
   featuredLead: leadSchema.nullable(),
 });
 
@@ -285,11 +431,44 @@ export const importLeadsResponseSchema = z.object({
   stats: z.array(progressStatSchema),
 });
 
+export const updateLeadResponseSchema = z.object({
+  lead: leadSchema,
+  activity: activitySchema,
+});
+
 export const researchLeadResponseSchema = z.object({
   lead: leadSchema,
   activity: activitySchema,
   agentRun: agentRunSchema,
   stats: z.array(progressStatSchema),
+});
+
+export const approvalsResponseSchema = z.object({
+  approvals: z.array(approvalSchema),
+});
+
+export const approvalResponseSchema = z.object({
+  approval: approvalSchema,
+  activity: activitySchema,
+});
+
+export const clientsResponseSchema = z.object({
+  clients: z.array(clientSchema),
+});
+
+export const clientResponseSchema = z.object({
+  client: clientSchema,
+  lead: leadSchema.optional(),
+  activity: activitySchema,
+});
+
+export const templatesResponseSchema = z.object({
+  templates: z.array(templateSchema),
+});
+
+export const templateResponseSchema = z.object({
+  template: templateSchema,
+  activity: activitySchema,
 });
 
 export const systemStatusSchema = z.object({
@@ -304,5 +483,12 @@ export const systemStatusSchema = z.object({
 
 export type CreateLeadResponse = z.infer<typeof createLeadResponseSchema>;
 export type ImportLeadsResponse = z.infer<typeof importLeadsResponseSchema>;
+export type UpdateLeadResponse = z.infer<typeof updateLeadResponseSchema>;
 export type ResearchLeadResponse = z.infer<typeof researchLeadResponseSchema>;
+export type ApprovalsResponse = z.infer<typeof approvalsResponseSchema>;
+export type ApprovalResponse = z.infer<typeof approvalResponseSchema>;
+export type ClientsResponse = z.infer<typeof clientsResponseSchema>;
+export type ClientResponse = z.infer<typeof clientResponseSchema>;
+export type TemplatesResponse = z.infer<typeof templatesResponseSchema>;
+export type TemplateResponse = z.infer<typeof templateResponseSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;

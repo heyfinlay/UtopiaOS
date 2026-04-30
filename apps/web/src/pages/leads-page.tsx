@@ -1,13 +1,16 @@
-import { startTransition, useDeferredValue, useEffect } from "react";
+import { startTransition, useDeferredValue, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   ArrowUpRight,
+  BriefcaseBusiness,
   CircleDollarSign,
   ClipboardList,
   Radar,
   Receipt,
+  Save,
   Search,
+  ShieldCheck,
   Upload,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -20,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import {
   describePriority,
@@ -42,6 +46,19 @@ export function LeadsPage() {
   const setCreateLeadOpen = useUiStore((state) => state.setCreateLeadOpen);
   const setImportLeadsOpen = useUiStore((state) => state.setImportLeadsOpen);
   const deferredSearch = useDeferredValue(leadSearch);
+  const [leadDraft, setLeadDraft] = useState({
+    status: "new",
+    priority: "normal",
+    nextAction: "",
+    notes: "",
+    weightedValue: "",
+    invoiceOutstanding: "",
+    nextRevenueMilestone: "",
+    deliveryStage: "backlog",
+    nextDeliverable: "",
+    dueLabel: "",
+    riskLevel: "low",
+  });
 
   const leadsQuery = useQuery({
     queryKey: ["leads"],
@@ -95,6 +112,109 @@ export function LeadsPage() {
       startTransition(() => navigate(`/leads/${filteredLeads[0].id}`, { replace: true }));
     }
   }, [filteredLeads, leadId, navigate]);
+
+  useEffect(() => {
+    if (!selectedLead) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLeadDraft({
+      status: selectedLead.status,
+      priority: selectedLead.priority,
+      nextAction: selectedLead.nextAction ?? "",
+      notes: selectedLead.notes ?? "",
+      weightedValue: String(selectedLead.commercial?.weightedValue ?? 0),
+      invoiceOutstanding: String(selectedLead.commercial?.invoiceOutstanding ?? 0),
+      nextRevenueMilestone: selectedLead.commercial?.nextRevenueMilestone ?? "",
+      deliveryStage: selectedLead.delivery?.stage ?? "backlog",
+      nextDeliverable: selectedLead.delivery?.nextDeliverable ?? "",
+      dueLabel: selectedLead.delivery?.dueLabel ?? "",
+      riskLevel: selectedLead.delivery?.riskLevel ?? "low",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLead?.id]);
+
+  const updateLeadMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedLead) {
+        throw new Error("No selected lead.");
+      }
+
+      return api.updateLead(selectedLead.id, {
+        status: leadDraft.status as typeof selectedLead.status,
+        priority: leadDraft.priority as typeof selectedLead.priority,
+        nextAction: leadDraft.nextAction,
+        notes: leadDraft.notes,
+        commercial: {
+          weightedValue: Number(leadDraft.weightedValue),
+          invoiceOutstanding: Number(leadDraft.invoiceOutstanding),
+          nextRevenueMilestone: leadDraft.nextRevenueMilestone,
+        },
+        delivery: {
+          stage: leadDraft.deliveryStage as NonNullable<typeof selectedLead.delivery>["stage"],
+          nextDeliverable: leadDraft.nextDeliverable,
+          dueLabel: leadDraft.dueLabel,
+          riskLevel: leadDraft.riskLevel as NonNullable<typeof selectedLead.delivery>["riskLevel"],
+        },
+      });
+    },
+    onSuccess: async ({ lead }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["leads"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      toast.success(`${lead.company} updated.`);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Lead update failed.");
+    },
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedLead) {
+        throw new Error("No selected lead.");
+      }
+
+      return api.promoteLead(selectedLead.id, {
+        auditNote: selectedLead.research?.overview ?? selectedLead.notes,
+        roadmapItem: selectedLead.delivery?.nextDeliverable ?? selectedLead.nextAction,
+      });
+    },
+    onSuccess: async ({ client }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["leads"] }),
+        queryClient.invalidateQueries({ queryKey: ["clients"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      toast.success(`${client.company} promoted to client delivery.`);
+    },
+  });
+
+  const approvalMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedLead) {
+        throw new Error("No selected lead.");
+      }
+
+      return api.requestApproval({
+        action: "change_lead_status",
+        targetType: "lead",
+        targetId: selectedLead.id,
+        title: `Approve ${selectedLead.company} status change`,
+        summary: `Move ${selectedLead.company} toward ${leadDraft.status}.`,
+        payload: { status: leadDraft.status },
+      });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["approvals"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      toast.success("Approval requested.");
+    },
+  });
 
   return (
     <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
@@ -414,6 +534,156 @@ export function LeadsPage() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card className="mt-4 rounded-[1.75rem] border-white/8 bg-white/4 text-white">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-lg">Lead controls</CardTitle>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    className="rounded-2xl border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+                    onClick={() => approvalMutation.mutate()}
+                    disabled={approvalMutation.isPending}
+                  >
+                    Approval
+                    <ShieldCheck className="ml-2 h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-2xl border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+                    onClick={() => promoteMutation.mutate()}
+                    disabled={promoteMutation.isPending}
+                  >
+                    Promote
+                    <BriefcaseBusiness className="ml-2 h-4 w-4" />
+                  </Button>
+                  <Button
+                    className="rounded-2xl bg-cyan-200 text-slate-950 hover:bg-cyan-100"
+                    onClick={() => updateLeadMutation.mutate()}
+                    disabled={updateLeadMutation.isPending}
+                  >
+                    Save
+                    <Save className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
+                <label className="space-y-2">
+                  <span className="text-slate-300">Status</span>
+                  <select
+                    value={leadDraft.status}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({ ...draft, status: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 text-slate-100 outline-none"
+                  >
+                    {Object.keys(leadColumnLabels).map((status) => (
+                      <option key={status} value={status}>
+                        {leadColumnLabels[status as keyof typeof leadColumnLabels]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-slate-300">Priority</span>
+                  <select
+                    value={leadDraft.priority}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({ ...draft, priority: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 text-slate-100 outline-none"
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-slate-300">Weighted value</span>
+                  <Input
+                    type="number"
+                    value={leadDraft.weightedValue}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({
+                        ...draft,
+                        weightedValue: event.target.value,
+                      }))
+                    }
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/70"
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-slate-300">Outstanding invoice</span>
+                  <Input
+                    type="number"
+                    value={leadDraft.invoiceOutstanding}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({
+                        ...draft,
+                        invoiceOutstanding: event.target.value,
+                      }))
+                    }
+                    className="h-11 rounded-2xl border-white/10 bg-slate-950/70"
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-slate-300">Delivery stage</span>
+                  <select
+                    value={leadDraft.deliveryStage}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({
+                        ...draft,
+                        deliveryStage: event.target.value,
+                      }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 text-slate-100 outline-none"
+                  >
+                    <option value="backlog">Backlog</option>
+                    <option value="scoping">Scoping</option>
+                    <option value="implementation">Implementation</option>
+                    <option value="handoff">Handoff</option>
+                    <option value="retainer">Retainer</option>
+                  </select>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-slate-300">Risk</span>
+                  <select
+                    value={leadDraft.riskLevel}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({ ...draft, riskLevel: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 text-slate-100 outline-none"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </label>
+                <label className="space-y-2 md:col-span-2 xl:col-span-3">
+                  <span className="text-slate-300">Next action</span>
+                  <Textarea
+                    value={leadDraft.nextAction}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({ ...draft, nextAction: event.target.value }))
+                    }
+                    className="min-h-[80px] rounded-2xl border-white/10 bg-slate-950/70"
+                  />
+                </label>
+                <label className="space-y-2 md:col-span-2 xl:col-span-3">
+                  <span className="text-slate-300">Delivery milestone</span>
+                  <Textarea
+                    value={leadDraft.nextDeliverable}
+                    onChange={(event) =>
+                      setLeadDraft((draft) => ({
+                        ...draft,
+                        nextDeliverable: event.target.value,
+                      }))
+                    }
+                    className="min-h-[80px] rounded-2xl border-white/10 bg-slate-950/70"
+                  />
+                </label>
+              </CardContent>
+            </Card>
 
             <div className="mt-4 flex-1">
               {selectedLead.research ? (
