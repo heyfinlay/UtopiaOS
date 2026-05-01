@@ -11,9 +11,27 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.14
         version: 1.19.14(hono@4.12.15)
+      '@hono/zod-validator':
+        specifier: ^0.7.6
+        version: 0.7.6(hono@4.12.15)(zod@4.4.1)
+      '@supabase/supabase-js':
+        specifier: ^2.105.1
+        version: 2.105.1
+      '@utopia/agent-actions':
+        specifier: workspace:*
+        version: link:packages/agent-actions
+      '@utopia/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@utopia/schemas':
+        specifier: workspace:*
+        version: link:packages/schemas
       hono:
         specifier: ^4.12.15
         version: 4.12.15
+      zod:
+        specifier: ^4.4.1
+        version: 4.4.1
     devDependencies:
       '@types/node':
         specifier: ^24.12.2

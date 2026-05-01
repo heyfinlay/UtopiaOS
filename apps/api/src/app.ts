@@ -106,6 +106,37 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
     }),
   );
 
+  app.onError((error, context) => {
+    console.error("Utopia API request failed", {
+      method: context.req.method,
+      path: context.req.path,
+      error,
+    });
+
+    return context.json(
+      {
+        error: "Utopia API request failed.",
+        message: error instanceof Error ? error.message : "Unknown API error.",
+        path: context.req.path,
+      },
+      500,
+    );
+  });
+
+  app.notFound((context) => {
+    if (context.req.path.startsWith("/api")) {
+      return context.json(
+        {
+          error: "API route not found.",
+          path: context.req.path,
+        },
+        404,
+      );
+    }
+
+    return context.json({ error: "Not found." }, 404);
+  });
+
   app.get("/health", (context) =>
     context.json({
       ok: true,
@@ -121,6 +152,8 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
       service: "utopia-command-api",
       repositoryMode: repository.mode,
       agentMode: agentStatus.mode,
+      supabaseConfigured: hasSupabaseEnv,
+      ownerConfigured: hasOwnerEnv,
     }),
   );
 
