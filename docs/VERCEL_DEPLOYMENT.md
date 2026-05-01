@@ -2,11 +2,15 @@
 
 This repository is prepared for a single Vercel project:
 
-- static Vite app from `apps/web/dist`
+- static Vite app built into root-level `dist`
 - Hono API as a Vercel Node.js Function through `api/[...path].ts`
 - `/api/*` routed to the API function
 - `/health` routed to the API health endpoint
 - all other routes routed to the React app shell
+
+Do not create a second Vercel project mounted at `/api` for the normal deployment. The root
+project owns both the web app and the `/api/*` function routes. A separate API project would only be
+needed if you intentionally split the architecture and then set `VITE_API_URL` to that API domain.
 
 ## Required Vercel Settings
 
