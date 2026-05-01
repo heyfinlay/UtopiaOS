@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { handle } from "@hono/node-server/vercel";
+import { createApp } from "../apps/api/src/app.js";
 
 export const config = {
   maxDuration: 30,
@@ -9,29 +11,7 @@ type VercelHandler = (
   response: ServerResponse,
 ) => void | Promise<void>;
 
-let cachedHandler: VercelHandler | undefined;
-
-const importAppModule = async () => {
-  try {
-    return await import("../apps/api/dist/app.js");
-  } catch {
-    const sourceAppModulePath = "../apps/api/src/app.ts";
-    return import(sourceAppModulePath);
-  }
-};
-
-const getHandler = async () => {
-  if (!cachedHandler) {
-    const [{ handle }, { createApp }] = await Promise.all([
-      import("@hono/node-server/vercel"),
-      importAppModule(),
-    ]);
-
-    cachedHandler = handle(createApp());
-  }
-
-  return cachedHandler;
-};
+const cachedHandler: VercelHandler = handle(createApp());
 
 const sendStartupError = (response: ServerResponse, error: unknown) => {
   console.error("Utopia API function failed to start", error);
@@ -51,8 +31,7 @@ export default async function handler(
   response: ServerResponse,
 ) {
   try {
-    const honoHandler = await getHandler();
-    return await honoHandler(request, response);
+    return await cachedHandler(request, response);
   } catch (error) {
     sendStartupError(response, error);
   }
