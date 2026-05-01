@@ -40,6 +40,7 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = init?.method ?? "GET";
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       "content-type": "application/json",
@@ -53,10 +54,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       | { error?: string }
       | null;
 
-    throw new ApiError(
-      payload?.error ?? `Request failed with status ${response.status}.`,
-      response.status,
-    );
+    const fallbackMessage =
+      response.status === 405
+        ? `${method} ${path} returned 405. The API function was not reached; check the Vercel project root, output directory, and /api function deployment.`
+        : `Request failed with status ${response.status}.`;
+
+    throw new ApiError(payload?.error ?? fallbackMessage, response.status);
   }
 
   return (await response.json()) as T;

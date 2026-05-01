@@ -41,7 +41,7 @@ const loadEnvFile = (filename: string) => {
       continue;
     }
 
-    process.env[key] = value;
+    process.env[key] ??= value;
   }
 };
 

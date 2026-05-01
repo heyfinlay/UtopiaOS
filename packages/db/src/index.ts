@@ -737,7 +737,7 @@ const buildActionItems = (state: UtopiaState) => {
   );
   const rawLead = state.leads.find((lead) => !lead.research);
 
-  return [
+  const items = [
     unpaidLead && {
       id: "action-collect-invoice",
       title: `Collect ${unpaidLead.company}`,
@@ -774,6 +774,21 @@ const buildActionItems = (state: UtopiaState) => {
       valueLabel: rawLead.priority.toUpperCase(),
     },
   ].filter(Boolean);
+
+  if (items.length > 0) {
+    return items;
+  }
+
+  return [
+    {
+      id: "action-create-first-lead",
+      title: "Create the first lead",
+      description: "Add a prospect to start building pipeline and unlock the research workflow.",
+      href: "/leads",
+      emphasis: "ops" as const,
+      valueLabel: "START",
+    },
+  ];
 };
 
 const buildDeliverySnapshot = (state: UtopiaState) => {
@@ -851,6 +866,8 @@ const buildDashboardSummary = (state: UtopiaState): DashboardSummary =>
 const normalizeOptionalString = (value: string | null | undefined) =>
   value?.trim() ? value : undefined;
 
+const normalizeDateTime = (value: string) => new Date(value).toISOString();
+
 const normalizeXp = (value: unknown): StatXpMap => {
   const raw = typeof value === "object" && value ? value : {};
   const getValue = (key: StatKey) => {
@@ -912,9 +929,9 @@ const toLead = (row: LeadRow): Lead =>
     research: parseResearch(row.research_payload),
     commercial: parseProfileObject(row.commercial_profile, leadSchema.shape.commercial.parse),
     delivery: parseProfileObject(row.delivery_profile, leadSchema.shape.delivery.parse),
-    lastResearchedAt: row.last_researched_at ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    lastResearchedAt: row.last_researched_at ? normalizeDateTime(row.last_researched_at) : undefined,
+    createdAt: normalizeDateTime(row.created_at),
+    updatedAt: normalizeDateTime(row.updated_at),
   });
 
 const toActivity = (row: ActivityRow): Activity =>
@@ -926,7 +943,7 @@ const toActivity = (row: ActivityRow): Activity =>
     actor: row.actor,
     message: row.message,
     xpAwards: normalizeXp(row.xp_awards),
-    createdAt: row.created_at,
+    createdAt: normalizeDateTime(row.created_at),
   });
 
 const toAgentRun = (row: AgentRunRow): AgentRun =>
@@ -940,8 +957,8 @@ const toAgentRun = (row: AgentRunRow): AgentRun =>
     targetId: row.target_id,
     requiresApproval: row.requires_approval,
     prompt: row.prompt,
-    startedAt: row.started_at,
-    completedAt: row.completed_at ?? undefined,
+    startedAt: normalizeDateTime(row.started_at),
+    completedAt: row.completed_at ? normalizeDateTime(row.completed_at) : undefined,
     error: normalizeOptionalString(row.error),
   });
 
@@ -961,8 +978,8 @@ const toApproval = (row: ApprovalRow): Approval =>
     summary: row.summary,
     requestedBy: row.requested_by,
     payload: typeof row.payload === "object" && row.payload && !Array.isArray(row.payload) ? row.payload : {},
-    createdAt: row.created_at,
-    resolvedAt: row.resolved_at ?? undefined,
+    createdAt: normalizeDateTime(row.created_at),
+    resolvedAt: row.resolved_at ? normalizeDateTime(row.resolved_at) : undefined,
   });
 
 const toClient = (row: ClientRow): Client =>
@@ -973,8 +990,8 @@ const toClient = (row: ClientRow): Client =>
     status: row.status,
     auditNotes: parseStringArray(row.audit_notes),
     deliveryRoadmap: parseStringArray(row.delivery_roadmap),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: normalizeDateTime(row.created_at),
+    updatedAt: normalizeDateTime(row.updated_at),
   });
 
 const toTemplate = (row: TemplateRow): Template => {
@@ -990,8 +1007,8 @@ const toTemplate = (row: TemplateRow): Template => {
     body: row.body,
     version: typeof metadata.version === "number" ? metadata.version : 1,
     archived: metadata.archived === true,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: normalizeDateTime(row.created_at),
+    updatedAt: normalizeDateTime(row.updated_at),
   });
 };
 

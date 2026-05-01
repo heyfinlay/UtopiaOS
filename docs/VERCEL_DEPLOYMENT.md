@@ -17,7 +17,27 @@ Vercel should read these from `vercel.json`:
 - Framework: `vite`
 - Install command: `pnpm install --frozen-lockfile`
 - Build command: `pnpm build`
-- Output directory: `apps/web/dist`
+- Output directory: `dist`
+
+The Vite config writes the web build to root-level `dist` so Vercel does not fall back to a
+`public` output directory.
+
+If lead creation returns `405 Method Not Allowed`, the frontend is usually being deployed without
+the root-level `api/[...path].ts` function. Check these settings first:
+
+- Root Directory must be the repository root, not `apps/web`.
+- Output Directory must be `dist`, not `public`.
+- Build Command must be `pnpm build`.
+- `VITE_API_URL` should be unset for a single Vercel project so the app calls same-origin `/api/*`.
+
+After deployment, verify the API function directly:
+
+```bash
+curl https://your-deployment-url.vercel.app/api/health
+curl -X POST https://your-deployment-url.vercel.app/api/leads \
+  -H 'content-type: application/json' \
+  -d '{"name":"Test Lead","company":"Test Company","priority":"normal"}'
+```
 
 ## Environment Variables
 

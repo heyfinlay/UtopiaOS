@@ -3,7 +3,7 @@
   "framework": "vite",
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
-  "outputDirectory": "apps/web/dist",
+  "outputDirectory": "dist",
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 30
@@ -13,10 +13,6 @@
     {
       "source": "/health",
       "destination": "/api/health"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "/api/:path*"
     },
     {
       "source": "/(.*)",
