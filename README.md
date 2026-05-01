@@ -150,10 +150,20 @@ pnpm test
 pnpm lint
 ```
 
+## Vercel Deployment
+
+The repository includes [`vercel.json`](/Users/finlaysturzaker/Documents/UtopiaOS/vercel.json) for a
+single-project Vercel deployment. The Vite app is served from `apps/web/dist`, and the Hono API runs
+as a Vercel Node.js Function via [`api/[...path].ts`](/Users/finlaysturzaker/Documents/UtopiaOS/api/[...path].ts).
+
+See [`docs/VERCEL_DEPLOYMENT.md`](/Users/finlaysturzaker/Documents/UtopiaOS/docs/VERCEL_DEPLOYMENT.md)
+for environment variables and deployment commands.
+
 ## Documentation
 
 - Architecture: [docs/TECHNICAL_ARCHITECTURE.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/TECHNICAL_ARCHITECTURE.md)
 - Usage: [docs/USAGE.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/USAGE.md)
+- Vercel deployment: [docs/VERCEL_DEPLOYMENT.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/VERCEL_DEPLOYMENT.md)
 - Agent integration: [docs/AGENT_INTEGRATION.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/AGENT_INTEGRATION.md)
 - Agent rules: [docs/AGENT_RULES.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/AGENT_RULES.md)
 - Progress log: [docs/PROGRESS.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/PROGRESS.md)

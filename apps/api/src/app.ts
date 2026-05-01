@@ -115,6 +115,15 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
     }),
   );
 
+  app.get("/api/health", (context) =>
+    context.json({
+      ok: true,
+      service: "utopia-command-api",
+      repositoryMode: repository.mode,
+      agentMode: agentStatus.mode,
+    }),
+  );
+
   app.get("/api/dashboard", async (context) =>
     context.json(await repository.getDashboardSummary()),
   );
