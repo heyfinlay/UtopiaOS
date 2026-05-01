@@ -65,6 +65,7 @@ export type CreateActivityInput = Omit<Activity, "id" | "createdAt"> & {
 export type UtopiaRepository = {
   mode: "memory" | "supabase";
   reset: () => Promise<void>;
+  getSchemaCheck: () => Promise<SchemaCheckResult | null>;
   getDashboardSummary: () => Promise<DashboardSummary>;
   listProgressStats: () => Promise<ProgressStat[]>;
   listLeads: () => Promise<Lead[]>;
@@ -198,6 +199,20 @@ type ProgressionStatsRow = {
   discipline: number;
 };
 
+export type PersistenceConfigState = {
+  supabaseUrlConfigured: boolean;
+  serviceRoleConfigured: boolean;
+  supabaseConfigured: boolean;
+  ownerConfigured: boolean;
+  ownerIdFormatValid: boolean;
+  persistenceEnabled: boolean;
+};
+
+export type SchemaCheckResult = {
+  ok: boolean;
+  missing: string[];
+};
+
 const zeroXp = (): StatXpMap => ({
   sales: 0,
   delivery: 0,
@@ -225,6 +240,53 @@ export const createSupabaseAdminClient = (
     },
   });
 };
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const getPersistenceConfigState = (
+  env: NodeJS.ProcessEnv = process.env,
+): PersistenceConfigState => {
+  const supabaseUrlConfigured = Boolean(env.SUPABASE_URL?.trim());
+  const serviceRoleConfigured = Boolean(env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+  const ownerId = env.UTOPIA_OWNER_ID?.trim();
+  const ownerConfigured = Boolean(ownerId);
+  const ownerIdFormatValid = Boolean(ownerId && uuidPattern.test(ownerId));
+  const supabaseConfigured = supabaseUrlConfigured && serviceRoleConfigured;
+
+  return {
+    supabaseUrlConfigured,
+    serviceRoleConfigured,
+    supabaseConfigured,
+    ownerConfigured,
+    ownerIdFormatValid,
+    persistenceEnabled:
+      supabaseUrlConfigured && serviceRoleConfigured && ownerConfigured && ownerIdFormatValid,
+  };
+};
+
+const logRowParseError = (entity: string, row: { id?: string }, error: unknown) => {
+  console.error(`Failed to parse ${entity} row`, {
+    entity,
+    rowId: row.id,
+    error,
+    row,
+  });
+};
+
+const safeMapRows = <TRow extends { id?: string }, TValue>(
+  entity: string,
+  rows: TRow[],
+  parser: (row: TRow) => TValue,
+) =>
+  rows.flatMap((row) => {
+    try {
+      return [parser(row)];
+    } catch (error) {
+      logRowParseError(entity, row, error);
+      return [];
+    }
+  });
 
 const priorityWeight: Record<Lead["priority"], number> = {
   critical: 3,
@@ -1051,6 +1113,7 @@ export const createMemoryUtopiaRepository = (
     reset: async () => {
       state = createSeedState();
     },
+    getSchemaCheck: async () => null,
     getDashboardSummary: async () => buildDashboardSummary(state),
     listProgressStats,
     listLeads: async () => sortLeads(state.leads),
@@ -1405,6 +1468,71 @@ export const createSupabaseUtopiaRepository = ({
     throw new Error("Missing UTOPIA_OWNER_ID for the Supabase repository.");
   }
 
+  if (!uuidPattern.test(ownerId)) {
+    throw new Error("UTOPIA_OWNER_ID must be a valid UUID for the Supabase repository.");
+  }
+
+  const checkSchema = async (): Promise<SchemaCheckResult> => {
+    const checks = [
+      {
+        key: "leads.owner_id",
+        run: () =>
+          client
+            .from("leads")
+            .select(
+              "id, owner_id, research_payload, commercial_profile, delivery_profile, next_action, last_researched_at",
+            )
+            .limit(1),
+      },
+      {
+        key: "activities.owner_id",
+        run: () => client.from("activities").select("id, owner_id").limit(1),
+      },
+      {
+        key: "agent_runs.owner_id",
+        run: () => client.from("agent_runs").select("id, owner_id").limit(1),
+      },
+      {
+        key: "approvals.owner_id",
+        run: () => client.from("approvals").select("id, owner_id").limit(1),
+      },
+      {
+        key: "clients.owner_id",
+        run: () => client.from("clients").select("id, owner_id").limit(1),
+      },
+      {
+        key: "templates.owner_id",
+        run: () => client.from("templates").select("id, owner_id").limit(1),
+      },
+      {
+        key: "progression_stats.owner_id",
+        run: () => client.from("progression_stats").select("owner_id").limit(1),
+      },
+    ] as const;
+    const results = await Promise.all(
+      checks.map(async (check) => ({
+        key: check.key,
+        error: (await check.run()).error,
+      })),
+    );
+    const missing = results.flatMap(({ key, error }) => {
+      if (!error) {
+        return [];
+      }
+
+      console.error("Supabase schema check failed", {
+        key,
+        error,
+      });
+      return [key];
+    });
+
+    return {
+      ok: missing.length === 0,
+      missing,
+    };
+  };
+
   const ensureProgressionRow = async () => {
     const { error } = await client
       .from("progression_stats")
@@ -1469,12 +1597,12 @@ export const createSupabaseUtopiaRepository = ({
     assertNoError(progressionError, "Failed to load progression stats.");
 
     return {
-      leads: sortLeads(((leadRows ?? []) as LeadRow[]).map(toLead)),
-      clients: ((clientRows ?? []) as ClientRow[]).map(toClient),
-      approvals: ((approvalRows ?? []) as ApprovalRow[]).map(toApproval),
-      templates: ((templateRows ?? []) as TemplateRow[]).map(toTemplate),
-      activities: ((activityRows ?? []) as ActivityRow[]).map(toActivity),
-      agentRuns: ((agentRunRows ?? []) as AgentRunRow[]).map(toAgentRun),
+      leads: sortLeads(safeMapRows("lead", (leadRows ?? []) as LeadRow[], toLead)),
+      clients: safeMapRows("client", (clientRows ?? []) as ClientRow[], toClient),
+      approvals: safeMapRows("approval", (approvalRows ?? []) as ApprovalRow[], toApproval),
+      templates: safeMapRows("template", (templateRows ?? []) as TemplateRow[], toTemplate),
+      activities: safeMapRows("activity", (activityRows ?? []) as ActivityRow[], toActivity),
+      agentRuns: safeMapRows("agent run", (agentRunRows ?? []) as AgentRunRow[], toAgentRun),
       statXp: mapProgressionStatsRow(progressionRow as ProgressionStatsRow | null),
     };
   };
@@ -1513,6 +1641,7 @@ export const createSupabaseUtopiaRepository = ({
       throw new Error("Reset is only available for the in-memory repository.");
     },
     getDashboardSummary: async () => buildDashboardSummary(await loadState()),
+    getSchemaCheck: checkSchema,
     listProgressStats,
     listLeads: async () => (await loadState()).leads,
     getLead: getLeadById,
@@ -1923,13 +2052,9 @@ export const createSupabaseUtopiaRepository = ({
 };
 
 export const createConfiguredUtopiaRepository = (): UtopiaRepository => {
-  const hasSupabaseConfig = Boolean(
-    process.env.SUPABASE_URL?.trim() &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() &&
-      process.env.UTOPIA_OWNER_ID?.trim(),
-  );
+  const config = getPersistenceConfigState();
 
-  if (hasSupabaseConfig) {
+  if (config.persistenceEnabled) {
     return createSupabaseUtopiaRepository();
   }
 

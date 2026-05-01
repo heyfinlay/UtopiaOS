@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { createUtopiaRepository } from "@utopia/db";
+import {
+  createMemoryUtopiaRepository,
+  createUtopiaRepository,
+  type UtopiaRepository,
+} from "@utopia/db";
 
 import { createApp } from "./app";
 
@@ -50,6 +54,41 @@ describe("createApp", () => {
     const payload = await response.json();
     expect(payload.repositoryMode).toBe("memory");
     expect(payload.agentMode).toBe("mock");
+    expect(payload.supabaseUrlConfigured).toBe(false);
+    expect(payload.serviceRoleConfigured).toBe(false);
+    expect(payload.ownerIdFormatValid).toBe(false);
+  });
+
+  it("returns a valid empty dashboard state", async () => {
+    const repository = createMemoryUtopiaRepository({
+      leads: [],
+      clients: [],
+      approvals: [],
+      templates: [],
+      activities: [],
+      agentRuns: [],
+      statXp: {
+        sales: 0,
+        delivery: 0,
+        content: 0,
+        systems: 0,
+        relationships: 0,
+        revenue: 0,
+        discipline: 0,
+      },
+    });
+    const app = createApp(repository);
+
+    const response = await app.request("/api/dashboard");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.actionItems).toHaveLength(1);
+    expect(payload.stats).toHaveLength(7);
+    expect(payload.recentActivity).toEqual([]);
+    expect(payload.agentRuns).toEqual([]);
+    expect(payload.approvals).toEqual([]);
+    expect(payload.featuredLead).toBeNull();
   });
 
   it("imports a CSV-sized lead batch through the bulk endpoint", async () => {
@@ -170,5 +209,54 @@ describe("createApp", () => {
       }),
     });
     expect(templateResponse.status).toBe(201);
+  });
+
+  it("returns JSON errors with a request id for unhandled failures", async () => {
+    const repository: UtopiaRepository = {
+      mode: "memory",
+      reset: vi.fn(async () => undefined),
+      getSchemaCheck: vi.fn(async () => null),
+      getDashboardSummary: vi.fn(async () => {
+        throw new Error("dashboard exploded");
+      }),
+      listProgressStats: vi.fn(async () => []),
+      listLeads: vi.fn(async () => []),
+      getLead: vi.fn(async () => null),
+      createLead: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+      updateLead: vi.fn(async () => null),
+      updateLeadStatus: vi.fn(async () => null),
+      applyResearchToLead: vi.fn(async () => null),
+      awardXp: vi.fn(async () => []),
+      createActivity: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+      createAgentRun: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+      updateAgentRun: vi.fn(async () => null),
+      listApprovals: vi.fn(async () => []),
+      createApproval: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+      resolveApproval: vi.fn(async () => null),
+      listClients: vi.fn(async () => []),
+      promoteLeadToClient: vi.fn(async () => null),
+      updateClient: vi.fn(async () => null),
+      listTemplates: vi.fn(async () => []),
+      createTemplate: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+      updateTemplate: vi.fn(async () => null),
+    };
+    const app = createApp(repository);
+
+    const response = await app.request("/api/dashboard");
+
+    expect(response.status).toBe(500);
+    const payload = await response.json();
+    expect(payload.error).toBe("Internal Server Error");
+    expect(payload.requestId).toEqual(expect.any(String));
   });
 });

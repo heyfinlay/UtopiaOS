@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import process from "node:process";
 
 import { zValidator } from "@hono/zod-validator";
@@ -27,7 +28,11 @@ import {
   updateLeadResponseSchema,
   updateTemplateInputSchema,
 } from "@utopia/schemas";
-import { type UtopiaRepository, utopiaRepository } from "@utopia/db";
+import {
+  getPersistenceConfigState,
+  type UtopiaRepository,
+  utopiaRepository,
+} from "@utopia/db";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
@@ -92,12 +97,10 @@ const templateParamsSchema = z.object({
 });
 
 export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
-  const app = new Hono();
+  const app = new Hono<{ Variables: { requestId: string } }>();
   const agentStatus = getAgentConnectionStatus();
-  const hasSupabaseEnv = Boolean(
-    process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
-  );
-  const hasOwnerEnv = Boolean(process.env.UTOPIA_OWNER_ID?.trim());
+  const persistence = getPersistenceConfigState();
+  const isDevelopment = process.env.NODE_ENV !== "production";
 
   app.use(
     "*",
@@ -106,8 +109,20 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
     }),
   );
 
+  app.use("*", async (context, next) => {
+    const requestId =
+      context.req.header("x-request-id")?.trim() ||
+      context.req.header("x-vercel-id")?.trim() ||
+      randomUUID();
+    context.set("requestId", requestId);
+    context.header("x-request-id", requestId);
+    await next();
+  });
+
   app.onError((error, context) => {
+    const requestId = context.get("requestId");
     console.error("Utopia API request failed", {
+      requestId,
       method: context.req.method,
       path: context.req.path,
       error,
@@ -115,9 +130,12 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
 
     return context.json(
       {
-        error: "Utopia API request failed.",
-        message: error instanceof Error ? error.message : "Unknown API error.",
-        path: context.req.path,
+        error: "Internal Server Error",
+        message:
+          isDevelopment && error instanceof Error
+            ? error.message
+            : "The API request failed.",
+        requestId,
       },
       500,
     );
@@ -128,6 +146,7 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
       return context.json(
         {
           error: "API route not found.",
+          requestId: context.get("requestId"),
           path: context.req.path,
         },
         404,
@@ -152,8 +171,8 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
       service: "utopia-command-api",
       repositoryMode: repository.mode,
       agentMode: agentStatus.mode,
-      supabaseConfigured: hasSupabaseEnv,
-      ownerConfigured: hasOwnerEnv,
+      supabaseConfigured: persistence.supabaseConfigured,
+      ownerConfigured: persistence.ownerConfigured,
     }),
   );
 
@@ -192,16 +211,20 @@ export const createApp = (repository: UtopiaRepository = utopiaRepository) => {
     ),
   );
 
-  app.get("/api/system/status", (context) =>
+  app.get("/api/system/status", async (context) =>
     context.json(
       systemStatusSchema.parse({
         repositoryMode: repository.mode,
-        supabaseConfigured: hasSupabaseEnv,
+        supabaseUrlConfigured: persistence.supabaseUrlConfigured,
+        serviceRoleConfigured: persistence.serviceRoleConfigured,
+        supabaseConfigured: persistence.supabaseConfigured,
         persistenceEnabled: repository.mode === "supabase",
-        ownerConfigured: hasOwnerEnv,
+        ownerConfigured: persistence.ownerConfigured,
+        ownerIdFormatValid: persistence.ownerIdFormatValid,
         agentCommandConfigured: agentStatus.configured,
         agentCommandPreview: agentStatus.commandPreview,
         agentMode: agentStatus.mode,
+        schemaCheck: (await repository.getSchemaCheck()) ?? undefined,
       }),
     ),
   );

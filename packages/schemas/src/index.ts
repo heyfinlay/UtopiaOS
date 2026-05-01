@@ -471,14 +471,23 @@ export const templateResponseSchema = z.object({
   activity: activitySchema,
 });
 
+export const systemSchemaCheckSchema = z.object({
+  ok: z.boolean(),
+  missing: z.array(z.string()),
+});
+
 export const systemStatusSchema = z.object({
   repositoryMode: repositoryModeSchema,
+  supabaseUrlConfigured: z.boolean(),
+  serviceRoleConfigured: z.boolean(),
   supabaseConfigured: z.boolean(),
   persistenceEnabled: z.boolean(),
   ownerConfigured: z.boolean(),
+  ownerIdFormatValid: z.boolean(),
   agentCommandConfigured: z.boolean(),
   agentCommandPreview: z.string(),
   agentMode: z.enum(["mock", "openclaw-cli"]),
+  schemaCheck: systemSchemaCheckSchema.optional(),
 });
 
 export type CreateLeadResponse = z.infer<typeof createLeadResponseSchema>;

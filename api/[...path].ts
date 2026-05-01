@@ -11,11 +11,19 @@ type VercelHandler = (
 
 let cachedHandler: VercelHandler | undefined;
 
+const importAppModule = async () => {
+  try {
+    return await import("../apps/api/dist/app.js");
+  } catch {
+    return import("../apps/api/src/app");
+  }
+};
+
 const getHandler = async () => {
   if (!cachedHandler) {
     const [{ handle }, { createApp }] = await Promise.all([
       import("@hono/node-server/vercel"),
-      import("../apps/api/src/app"),
+      importAppModule(),
     ]);
 
     cachedHandler = handle(createApp());

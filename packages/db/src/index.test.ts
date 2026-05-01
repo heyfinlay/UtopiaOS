@@ -1,8 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createUtopiaRepository } from "./index";
+import {
+  createConfiguredUtopiaRepository,
+  createUtopiaRepository,
+  getPersistenceConfigState,
+} from "./index";
 
 describe("createUtopiaRepository", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("creates leads and reflects them in the dashboard", async () => {
     const repository = createUtopiaRepository();
     const lead = await repository.createLead({
@@ -103,5 +112,60 @@ describe("createUtopiaRepository", () => {
     expect(resolvedApproval?.status).toBe("approved");
     expect(promoted?.client.company).toBe("Bright Ops");
     expect(updatedTemplate?.version).toBe(2);
+  });
+
+  it("falls back to memory mode when only part of the Supabase env is present", () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("UTOPIA_OWNER_ID", "");
+
+    const config = getPersistenceConfigState();
+    const repository = createConfiguredUtopiaRepository();
+
+    expect(config.supabaseConfigured).toBe(false);
+    expect(config.persistenceEnabled).toBe(false);
+    expect(repository.mode).toBe("memory");
+
+    vi.unstubAllEnvs();
+  });
+
+  it("reports persistence configuration and keeps incomplete Supabase env in memory mode", () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("UTOPIA_OWNER_ID", "not-a-uuid");
+
+    const config = getPersistenceConfigState();
+    const repository = createConfiguredUtopiaRepository();
+
+    expect(config.supabaseUrlConfigured).toBe(true);
+    expect(config.serviceRoleConfigured).toBe(false);
+    expect(config.ownerConfigured).toBe(true);
+    expect(config.ownerIdFormatValid).toBe(false);
+    expect(config.persistenceEnabled).toBe(false);
+    expect(repository.mode).toBe("memory");
+
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps the repository column expectations aligned with the checked-in migrations", () => {
+    const migrationSql = [
+      "20260430191500_utopia_command_init.sql",
+      "20260430201000_utopia_revenue_delivery_profiles.sql",
+      "20260501023000_utopia_approvals.sql",
+    ]
+      .map((filename) =>
+        readFileSync(
+          new URL(`../../../supabase/migrations/${filename}`, import.meta.url),
+          "utf8",
+        ),
+      )
+      .join("\n");
+
+    expect(migrationSql).toContain("owner_id uuid not null references auth.users");
+    expect(migrationSql).toContain("research_payload jsonb not null");
+    expect(migrationSql).toContain("commercial_profile jsonb not null");
+    expect(migrationSql).toContain("delivery_profile jsonb not null");
+    expect(migrationSql).toContain("next_action text");
+    expect(migrationSql).toContain("last_researched_at timestamptz");
   });
 });
