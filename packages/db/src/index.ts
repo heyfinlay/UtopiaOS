@@ -138,7 +138,7 @@ type ActivityRow = {
 type AgentRunRow = {
   id: string;
   action: "research_lead";
-  mode: "mock" | "mock-fallback" | "openclaw-cli";
+  mode: "mock" | "openclaw-cli";
   status: AgentRun["status"];
   summary: string | null;
   target_type: "lead";
@@ -268,6 +268,20 @@ export const getPersistenceConfigState = (
     ownerIdFormatValid,
     persistenceEnabled: supabaseConfigured,
   };
+};
+
+const getMissingPersistenceEnvVars = (config: PersistenceConfigState) => {
+  const missing: string[] = [];
+
+  if (!config.supabaseUrlConfigured) {
+    missing.push("SUPABASE_URL");
+  }
+
+  if (!config.serviceRoleConfigured) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  return missing;
 };
 
 const logRowParseError = (entity: string, row: { id?: string }, error: unknown) => {
@@ -2093,11 +2107,12 @@ export const createSupabaseUtopiaRepository = ({
 export const createConfiguredUtopiaRepository = (): UtopiaRepository => {
   const config = getPersistenceConfigState();
 
-  if (config.supabaseConfigured) {
-    return createSupabaseUtopiaRepository();
+  if (!config.supabaseConfigured) {
+    const missingEnvVars = getMissingPersistenceEnvVars(config);
+    throw new Error(
+      `Supabase persistence is required. Missing environment variables: ${missingEnvVars.join(", ")}.`,
+    );
   }
 
-  return createMemoryUtopiaRepository();
+  return createSupabaseUtopiaRepository();
 };
-
-export const utopiaRepository = createConfiguredUtopiaRepository();

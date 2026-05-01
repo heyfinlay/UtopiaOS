@@ -114,35 +114,37 @@ describe("createUtopiaRepository", () => {
     expect(updatedTemplate?.version).toBe(2);
   });
 
-  it("falls back to memory mode when only part of the Supabase env is present", () => {
+  it("fails fast when only part of the Supabase env is present", () => {
     vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     vi.stubEnv("UTOPIA_OWNER_ID", "");
 
     const config = getPersistenceConfigState();
-    const repository = createConfiguredUtopiaRepository();
 
     expect(config.supabaseConfigured).toBe(false);
     expect(config.persistenceEnabled).toBe(false);
-    expect(repository.mode).toBe("memory");
+    expect(() => createConfiguredUtopiaRepository()).toThrow(
+      "Supabase persistence is required. Missing environment variables: SUPABASE_SERVICE_ROLE_KEY.",
+    );
 
     vi.unstubAllEnvs();
   });
 
-  it("reports persistence configuration and keeps incomplete Supabase env in memory mode", () => {
+  it("reports persistence configuration and rejects incomplete Supabase env", () => {
     vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     vi.stubEnv("UTOPIA_OWNER_ID", "not-a-uuid");
 
     const config = getPersistenceConfigState();
-    const repository = createConfiguredUtopiaRepository();
 
     expect(config.supabaseUrlConfigured).toBe(true);
     expect(config.serviceRoleConfigured).toBe(false);
     expect(config.ownerConfigured).toBe(true);
     expect(config.ownerIdFormatValid).toBe(false);
     expect(config.persistenceEnabled).toBe(false);
-    expect(repository.mode).toBe("memory");
+    expect(() => createConfiguredUtopiaRepository()).toThrow(
+      "Supabase persistence is required. Missing environment variables: SUPABASE_SERVICE_ROLE_KEY.",
+    );
 
     vi.unstubAllEnvs();
   });

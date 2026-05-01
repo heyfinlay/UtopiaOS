@@ -2,7 +2,6 @@ import type { PropsWithChildren } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { SystemStatus } from "@utopia/schemas";
 import { AuthScreen } from "@/components/auth-screen";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -11,7 +10,6 @@ type AuthGateViewProps = PropsWithChildren<{
   authLoading: boolean;
   authRequired: boolean;
   currentUserAuthenticated: boolean;
-  demoMode: boolean;
   message?: string | null;
   statusLoading?: boolean;
   statusError?: string | null;
@@ -24,7 +22,6 @@ export function AuthGateView({
   authLoading,
   authRequired,
   currentUserAuthenticated,
-  demoMode,
   message,
   statusLoading = false,
   statusError = null,
@@ -40,7 +37,7 @@ export function AuthGateView({
     );
   }
 
-  if (currentUserAuthenticated || demoMode) {
+  if (currentUserAuthenticated) {
     return <>{children}</>;
   }
 
@@ -48,7 +45,6 @@ export function AuthGateView({
     return (
       <AuthScreen
         authReady
-        demoMode={false}
         loading={statusLoading}
         message={statusError ?? message}
         onSignIn={onSignIn}
@@ -73,7 +69,6 @@ export function AuthGateView({
     return (
       <AuthScreen
         authReady={false}
-        demoMode={false}
         message={
           statusError ??
           message ??
@@ -85,9 +80,6 @@ export function AuthGateView({
     );
   }
 }
-
-const isDemoModeAllowed = (status: SystemStatus | undefined, authConfigured: boolean) =>
-  !status?.authRequired && status?.repositoryMode === "memory" && !authConfigured;
 
 export function AuthGate({ children }: PropsWithChildren) {
   const { authConfigured, loading, session, authMessage, signIn, signUp } = useAuth();
@@ -104,7 +96,6 @@ export function AuthGate({ children }: PropsWithChildren) {
       authLoading={loading}
       authRequired={systemStatusQuery.data?.authRequired ?? false}
       currentUserAuthenticated={Boolean(session?.user)}
-      demoMode={isDemoModeAllowed(systemStatusQuery.data, authConfigured)}
       message={authMessage}
       statusLoading={systemStatusQuery.isLoading}
       statusError={systemStatusQuery.error instanceof Error ? systemStatusQuery.error.message : null}

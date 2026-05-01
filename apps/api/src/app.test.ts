@@ -73,26 +73,38 @@ describe("createApp", () => {
     expect(researchPayload.agentRun.status).toBe("completed");
   });
 
-  it("reports runtime system status", async () => {
-    vi.stubEnv("SUPABASE_URL", "");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
-    vi.stubEnv("UTOPIA_OWNER_ID", "");
-
-    const repository = createUtopiaRepository();
-    const app = createApp(repository);
+  it("reports runtime system status for the Supabase contract", async () => {
+    const repository = createSupabaseModeRepository();
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => null),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...repository,
+        getSchemaCheck: vi.fn(async () => ({
+          ok: true,
+          missing: [],
+        })),
+      })),
+    });
 
     const response = await app.request("/api/system/status");
 
     expect(response.status).toBe(200);
     const payload = await response.json();
-    expect(payload.repositoryMode).toBe("memory");
+    expect(payload.repositoryMode).toBe("supabase");
     expect(payload.agentMode).toBe("mock");
-    expect(payload.supabaseUrlConfigured).toBe(false);
-    expect(payload.serviceRoleConfigured).toBe(false);
-    expect(payload.authRequired).toBe(false);
+    expect(payload.supabaseUrlConfigured).toBe(true);
+    expect(payload.serviceRoleConfigured).toBe(true);
+    expect(payload.authRequired).toBe(true);
     expect(payload.currentRequestAuthenticated).toBe(false);
-    expect(payload.ownerSource).toBe("memory-demo");
-    expect(payload.ownerIdFormatValid).toBe(false);
+    expect(payload.ownerSource).toBe("none");
   });
 
   it("uses the configured repository mode when the app is created", async () => {
@@ -106,6 +118,16 @@ describe("createApp", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.repositoryMode).toBe("supabase");
+  });
+
+  it("fails fast when the app is created without required Supabase env", () => {
+    vi.stubEnv("SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("UTOPIA_OWNER_ID", "");
+
+    expect(() => createApp()).toThrow(
+      "Supabase persistence is required. Missing environment variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.",
+    );
   });
 
   it("rejects unauthenticated dashboard access in supabase mode", async () => {
@@ -134,6 +156,38 @@ describe("createApp", () => {
     expect(response.status).toBe(401);
     const payload = await response.json();
     expect(payload.error).toBe("Unauthorized");
+  });
+
+  it("does not use UTOPIA_OWNER_ID as a public-route fallback owner in supabase mode", async () => {
+    vi.stubEnv("UTOPIA_OWNER_ID", "550e8400-e29b-41d4-a716-446655440000");
+
+    const repository = createSupabaseModeRepository();
+    const createRepositoryForOwner = vi.fn(() => ({
+      ...repository,
+      getSchemaCheck: vi.fn(async () => ({
+        ok: true,
+        missing: [],
+      })),
+    }));
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: true,
+        ownerIdFormatValid: true,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => null),
+      createRepositoryForOwner,
+    });
+
+    const response = await app.request("/api/system/status");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.ownerSource).toBe("none");
+    expect(createRepositoryForOwner).not.toHaveBeenCalled();
   });
 
   it("allows authenticated dashboard access in supabase mode", async () => {

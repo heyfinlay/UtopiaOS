@@ -55,11 +55,10 @@ export const agentRunStatusSchema = z.enum([
 
 export const agentRunModeSchema = z.enum([
   "mock",
-  "mock-fallback",
   "openclaw-cli",
 ]);
 
-export const repositoryModeSchema = z.enum(["memory", "supabase"]);
+export const repositoryModeSchema = z.literal("supabase");
 
 export const researchOpportunitySchema = z.object({
   title: z.string().trim().min(2),
@@ -478,8 +477,6 @@ export const systemSchemaCheckSchema = z.object({
 
 export const ownerSourceSchema = z.enum([
   "authenticated-user",
-  "env-fallback",
-  "memory-demo",
   "none",
 ]);
 
@@ -492,8 +489,6 @@ export const systemStatusSchema = z.object({
   authRequired: z.boolean(),
   currentRequestAuthenticated: z.boolean(),
   ownerSource: ownerSourceSchema,
-  ownerConfigured: z.boolean(),
-  ownerIdFormatValid: z.boolean(),
   agentCommandConfigured: z.boolean(),
   agentCommandPreview: z.string(),
   agentMode: z.enum(["mock", "openclaw-cli"]),

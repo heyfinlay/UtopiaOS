@@ -96,7 +96,7 @@ const templateParamsSchema = z.object({
   templateId: z.string().trim().min(1),
 });
 
-type OwnerSource = "authenticated-user" | "env-fallback" | "memory-demo" | "none";
+type OwnerSource = "authenticated-user" | "memory-demo" | "none";
 
 type AuthenticatedUser = {
   id: string;
@@ -163,10 +163,6 @@ export const createApp = (
   const agentStatus = getAgentConnectionStatus();
   const persistence = options.persistence ?? getPersistenceConfigState();
   const isDevelopment = runtimeEnv.NODE_ENV !== "production";
-  const fallbackOwnerId =
-    persistence.ownerConfigured && persistence.ownerIdFormatValid
-      ? runtimeEnv.UTOPIA_OWNER_ID?.trim() ?? null
-      : null;
   const supabaseUrl = runtimeEnv.SUPABASE_URL?.trim() ?? "";
   const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
   const adminClient =
@@ -212,10 +208,7 @@ export const createApp = (
     context.set("repository", repository);
     context.set("currentUserId", null);
     context.set("currentRequestAuthenticated", false);
-    context.set(
-      "ownerSource",
-      repository.mode === "memory" ? "memory-demo" : fallbackOwnerId ? "env-fallback" : "none",
-    );
+    context.set("ownerSource", repository.mode === "memory" ? "memory-demo" : "none");
 
     return next();
   });
@@ -248,11 +241,6 @@ export const createApp = (
     }
 
     if (publicApiPaths.has(path)) {
-      if (fallbackOwnerId) {
-        context.set("ownerSource", "env-fallback");
-        context.set("repository", createRepositoryForOwner(fallbackOwnerId));
-      }
-
       return next();
     }
 
@@ -368,8 +356,6 @@ export const createApp = (
         serviceRoleConfigured: persistence.serviceRoleConfigured,
         supabaseConfigured: persistence.supabaseConfigured,
         persistenceEnabled: repository.mode === "supabase",
-        ownerConfigured: persistence.ownerConfigured,
-        ownerIdFormatValid: persistence.ownerIdFormatValid,
         authRequired,
         currentRequestAuthenticated: context.get("currentRequestAuthenticated"),
         ownerSource: context.get("ownerSource"),
@@ -539,7 +525,7 @@ export const createApp = (
 
       const queuedRun = await scopedRepository.createAgentRun({
         action: "research_lead",
-        mode: "mock",
+        mode: agentStatus.mode,
         status: "running",
         summary: `Researching ${lead.company} for offer opportunities.`,
         targetType: "lead",
@@ -566,7 +552,6 @@ export const createApp = (
           summary: `${updatedLead.company} researched with ${execution.result.opportunities.length} mapped opportunity angles.`,
           prompt: execution.prompt,
           completedAt: new Date().toISOString(),
-          error: execution.error,
         });
 
         const stats = await scopedRepository.awardXp(xpForResearch);
@@ -584,7 +569,7 @@ export const createApp = (
           entityId: queuedRun.id,
           kind: "agent.run.completed",
           actor: "system",
-          message: `${execution.mode === "openclaw-cli" ? "OpenClaw" : "Fallback research"} run completed for ${updatedLead.company}.`,
+          message: `${execution.mode === "openclaw-cli" ? "OpenClaw" : "Mock research"} run completed for ${updatedLead.company}.`,
           xpAwards: {
             sales: 0,
             delivery: 0,

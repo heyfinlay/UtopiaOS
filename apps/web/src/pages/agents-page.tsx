@@ -71,9 +71,9 @@ export function AgentsPage() {
           </div>
 
           <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
-            The app can always operate in mock mode. When `OPENCLAW_COMMAND` is configured, the API
-            will pipe the research prompt into the external agent command and validate the returned
-            JSON before persisting it.
+            The API persists through Supabase and validates every research payload before it lands.
+            When `OPENCLAW_COMMAND` is configured, the runtime pipes the prompt into the external
+            command and rejects invalid or failed responses instead of silently falling back.
           </p>
 
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
@@ -127,18 +127,18 @@ export function AgentsPage() {
               </p>
               <p className="mt-3 text-sm text-slate-200">
                 {systemStatus?.persistenceEnabled
-                  ? "Writes are going to Supabase."
-                  : "The app is using the in-memory fallback until full Supabase config is present."}
+                  ? "Reads and writes are going to Supabase."
+                  : "Supabase is not configured correctly for this runtime."}
               </p>
             </div>
             <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
               <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-slate-500">
-                Owner Context
+                Auth State
               </p>
               <p className="mt-3 text-sm text-slate-200">
-                {systemStatus?.ownerConfigured
-                  ? "A `UTOPIA_OWNER_ID` is configured for persistence."
-                  : "Set `UTOPIA_OWNER_ID` to enable Supabase-backed records."}
+                {systemStatus?.currentRequestAuthenticated
+                  ? "The current request is scoped to the authenticated Supabase user."
+                  : "Sign in with a Supabase user to scope reads and writes."}
               </p>
             </div>
           </div>

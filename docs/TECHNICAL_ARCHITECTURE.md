@@ -3,18 +3,18 @@
 ## Workspace Topology
 
 - [`apps/web`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/web): React operator dashboard
-- [`apps/api`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api): Hono API for validated mutations and reads
+- [`apps/api`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api): Hono API for validated reads and mutations
 - [`packages/schemas`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/schemas): shared Zod contracts and domain types
-- [`packages/db`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/db): repository abstraction with in-memory and Supabase implementations
-- [`packages/agent-actions`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/agent-actions): external agent bridge and mock fallback logic
+- [`packages/db`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/db): repository layer with Supabase production runtime and in-memory test doubles
+- [`packages/agent-actions`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/agent-actions): external agent bridge plus mock research mode when no command is configured
 
 ## Core Runtime Flow
 
 ### Lead creation
 
 1. The web app posts `createLeadInputSchema` data to `POST /api/leads`.
-2. The API creates the lead through the repository.
-3. The repository writes the lead in either memory or Supabase.
+2. The API authenticates the request and resolves the Supabase user id.
+3. The repository writes the lead in Supabase for that owner.
 4. The API awards XP and writes an activity record.
 5. The web app invalidates dashboard and lead queries.
 
@@ -24,29 +24,20 @@
 2. The API loads the lead and marks it `researching`.
 3. The API creates an `agent_run` record.
 4. `packages/agent-actions` builds the prompt.
-5. If `OPENCLAW_COMMAND` is configured, the prompt is piped to the external command.
+5. If `OPENCLAW_COMMAND` is configured, the prompt is piped to the external command. Otherwise the mock research generator is used.
 6. The returned JSON is validated against the shared schema.
 7. The repository writes the research result, activity event, and updated progression stats.
-8. The API returns the updated lead, run, and stats.
+8. If the command fails, the run is marked failed and no fallback result is persisted.
 
-## Repository Strategy
+## Persistence Strategy
 
-The repository layer is deliberately behind a single async contract so the API does not care whether storage is:
+The runtime API is Supabase-only:
 
-- ephemeral local state for fast development
-- Supabase-backed persistence for real usage
+- `createConfiguredUtopiaRepository()` fails fast when required Supabase env vars are missing
+- request ownership is resolved from the authenticated Supabase user id
+- public API contracts no longer advertise memory persistence as a supported runtime mode
 
-### In-memory mode
-
-- selected when full Supabase configuration is absent
-- fastest startup and simplest local use
-- resets on API restart
-
-### Supabase mode
-
-- selected only when `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `UTOPIA_OWNER_ID` are set
-- uses the existing migration under [`supabase/migrations`](/Users/finlaysturzaker/Documents/UtopiaOS/supabase/migrations/20260430191500_utopia_command_init.sql)
-- persists leads, activities, agent runs, and progression stats
+The in-memory repository remains available for targeted tests and local doubles where explicit wiring is useful.
 
 ## API Surface
 
@@ -55,14 +46,18 @@ The repository layer is deliberately behind a single async contract so the API d
 - `GET /api/leads`
 - `GET /api/leads/:leadId`
 - `POST /api/leads`
+- `POST /api/leads/import`
+- `PATCH /api/leads/:leadId`
 - `POST /api/leads/:leadId/research`
+- `POST /api/leads/:leadId/promote`
 - `GET /api/system/status`
 
-`/api/system/status` exists to make runtime truth visible to both the UI and the operator:
+`/api/system/status` exists to make runtime truth visible to the UI and operators:
 
 - repository mode
-- whether Supabase is fully active
-- whether an owner is configured
+- whether Supabase is configured
+- whether auth is required
+- whether the current request is authenticated
 - whether a live agent command is configured
 - whether agent execution is `mock` or `openclaw-cli`
 
@@ -71,26 +66,5 @@ The repository layer is deliberately behind a single async contract so the API d
 - The repository is the source of truth for business state.
 - Shared schemas define the trusted contract between web, API, persistence, and agent output.
 - Agent output is untrusted until parsed and validated.
-- High-risk actions are explicitly separated from the current research loop.
+- Command execution failures are surfaced as failed runs, not silent fallbacks.
 - Activity logs and agent runs provide an audit trail for each material action.
-
-## Frontend Composition
-
-The web app is organized around operational surfaces rather than CRUD-only screens:
-
-- `Command`: summary dashboard
-- `Leads`: creation, research, and lead detail
-- `Clients`: researched-account handoff visibility
-- `Missions`: progression derived from logs
-- `Vault`: stable prompt and workflow artifacts
-- `Agents`: runtime visibility and integration state
-
-## Testing
-
-Current automated coverage includes:
-
-- schema validation
-- repository operations
-- API end-to-end lead creation and research
-- agent-action behavior
-- dashboard grouping helpers

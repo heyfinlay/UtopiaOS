@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createLeadInputSchema, importLeadsInputSchema } from "./index";
+import { createLeadInputSchema, importLeadsInputSchema, systemStatusSchema } from "./index";
 
 describe("createLeadInputSchema", () => {
   it("normalizes blank optional fields", () => {
@@ -34,5 +34,25 @@ describe("importLeadsInputSchema", () => {
 
     expect(payload.leads).toHaveLength(1);
     expect(payload.leads[0]?.priority).toBe("high");
+  });
+});
+
+describe("systemStatusSchema", () => {
+  it("accepts only the Supabase runtime contract", () => {
+    const status = systemStatusSchema.parse({
+      repositoryMode: "supabase",
+      supabaseUrlConfigured: true,
+      serviceRoleConfigured: true,
+      supabaseConfigured: true,
+      persistenceEnabled: true,
+      authRequired: true,
+      currentRequestAuthenticated: false,
+      ownerSource: "none",
+      agentCommandConfigured: false,
+      agentCommandPreview: "OPENCLAW_COMMAND not configured",
+      agentMode: "mock",
+    });
+
+    expect(status.repositoryMode).toBe("supabase");
   });
 });

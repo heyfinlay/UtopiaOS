@@ -3,14 +3,10 @@
 This repository is prepared for a single Vercel project:
 
 - static Vite app built into root-level `dist`
-- Hono API as a Vercel Node.js Function through `api/[...path].ts`
+- Hono API as a Vercel Node.js Function through [`api/[...path].ts`](/Users/finlaysturzaker/Documents/UtopiaOS/api/[...path].ts)
 - `/api/*` routed to the API function
 - `/health` routed to the API health endpoint
 - all other routes routed to the React app shell
-
-Do not create a second Vercel project mounted at `/api` for the normal deployment. The root
-project owns both the web app and the `/api/*` function routes. A separate API project would only be
-needed if you intentionally split the architecture and then set `VITE_API_URL` to that API domain.
 
 ## Required Vercel Settings
 
@@ -23,78 +19,50 @@ Vercel should read these from `vercel.json`:
 - Build command: `pnpm build`
 - Output directory: `dist`
 
-The Vite config writes the web build to root-level `dist` so Vercel does not fall back to a
-`public` output directory.
+If lead creation returns `405 Method Not Allowed`, the frontend is usually being deployed without the root-level API function. Check:
 
-If lead creation returns `405 Method Not Allowed`, the frontend is usually being deployed without
-the root-level `api/[...path].ts` function. Check these settings first:
-
-- Root Directory must be the repository root, not `apps/web`.
-- Output Directory must be `dist`, not `public`.
-- Build Command must be `pnpm build`.
-- `VITE_API_URL` should be unset for a single Vercel project so the app calls same-origin `/api/*`.
-
-After deployment, verify the API function directly:
-
-```bash
-curl https://your-deployment-url.vercel.app/api/health
-curl -X POST https://your-deployment-url.vercel.app/api/leads \
-  -H 'content-type: application/json' \
-  -d '{"name":"Test Lead","company":"Test Company","priority":"normal"}'
-```
+- Root Directory is the repository root, not `apps/web`
+- Output Directory is `dist`, not `public`
+- Build Command is `pnpm build`
+- `VITE_API_URL` is unset for a single-project deployment
 
 ## Environment Variables
 
-Set these in Vercel for durable persistence:
+Set these in Vercel:
 
 ```bash
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
-UTOPIA_OWNER_ID=
+VITE_SUPABASE_URL=
+VITE_SUPABASE_PUBLISHABLE_KEY=
 ```
-
-Do not set `VITE_API_URL` in Vercel unless the API is deployed separately. When it is unset, the
-web app calls same-origin `/api/*`, which is the correct setting for this single-project deployment.
 
 Optional:
 
 ```bash
 OPENCLAW_COMMAND=
-VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
-VITE_SUPABASE_PUBLISHABLE_KEY=
 ```
+
+Do not set `VITE_API_URL` unless the API is deployed separately.
 
 ## Supabase Migrations
 
-Apply all migrations under `supabase/migrations` before using Supabase-backed production mode.
-The API falls back to in-memory mode if the required Supabase variables are missing.
+Apply all migrations under [`supabase/migrations`](/Users/finlaysturzaker/Documents/UtopiaOS/supabase/migrations) before deploying. The API now fails startup if the required Supabase server env vars are missing.
 
-## Local Verification
+## Verification
+
+Run locally before deploy:
 
 ```bash
-pnpm install
+pnpm typecheck
 pnpm test
-pnpm lint
 pnpm build
 ```
 
-If the Vercel CLI is linked:
+Then verify the deployment:
 
 ```bash
-vercel build
-```
-
-## Deploy
-
-Preview:
-
-```bash
-vercel deploy
-```
-
-Production:
-
-```bash
-vercel deploy --prod
+curl https://your-deployment-url.vercel.app/api/health
+curl https://your-deployment-url.vercel.app/api/system/status
 ```

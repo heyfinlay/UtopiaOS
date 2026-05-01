@@ -13,9 +13,8 @@ const runtimeEnv: EnvShape =
 
 export type ResearchLeadExecution = {
   result: ResearchLeadResult;
-  mode: "mock" | "mock-fallback" | "openclaw-cli";
+  mode: "mock" | "openclaw-cli";
   prompt: string;
-  error?: string;
 };
 
 export type AgentConnectionStatus = {
@@ -201,22 +200,13 @@ export const runResearchLeadAction = async (
     };
   }
 
-  try {
-    const result = await runOpenClawCommand(command, prompt);
+  const result = await runOpenClawCommand(command, prompt);
 
-    return {
-      result,
-      mode: "openclaw-cli",
-      prompt,
-    };
-  } catch (error) {
-    return {
-      result: buildMockResearch(lead),
-      mode: "mock-fallback",
-      prompt,
-      error: error instanceof Error ? error.message : "Unknown OpenClaw error",
-    };
-  }
+  return {
+    result,
+    mode: "openclaw-cli",
+    prompt,
+  };
 };
 
 export const getAgentConnectionStatus = (

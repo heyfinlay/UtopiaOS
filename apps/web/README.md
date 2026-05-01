@@ -33,5 +33,5 @@ The web app reads from:
 
 ## Notes
 
-- The UI remains fully usable in local `memory` + `mock` mode.
-- The Agents screen exposes whether the backend has switched to live Supabase persistence and live agent execution.
+- The web app expects a Supabase-backed API runtime.
+- The Agents screen exposes current Supabase and agent execution state.

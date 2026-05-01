@@ -2,7 +2,6 @@ import { useState } from "react";
 
 type AuthScreenProps = {
   authReady: boolean;
-  demoMode: boolean;
   loading?: boolean;
   message?: string | null;
   onSignIn: (email: string, password: string) => Promise<void>;
@@ -11,7 +10,6 @@ type AuthScreenProps = {
 
 export function AuthScreen({
   authReady,
-  demoMode,
   loading = false,
   message,
   onSignIn,
@@ -43,11 +41,9 @@ export function AuthScreen({
   };
 
   const disabled = submitting || loading || email.trim() === "" || password.trim() === "";
-  const diagnosticLabel = demoMode
-    ? "DEMO MODE"
-    : authReady
-      ? "SUPABASE AUTH: READY"
-      : "SUPABASE AUTH: NOT CONFIGURED";
+  const diagnosticLabel = authReady
+    ? "SUPABASE AUTH: READY"
+    : "SUPABASE AUTH: NOT CONFIGURED";
 
   return (
     <div className="min-h-screen bg-[#b8b8b8] text-black">

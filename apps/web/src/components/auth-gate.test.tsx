@@ -11,7 +11,6 @@ describe("AuthGateView", () => {
         authLoading={false}
         authRequired
         currentUserAuthenticated={false}
-        demoMode={false}
         onSignIn={vi.fn(async () => undefined)}
         onSignUp={vi.fn(async () => undefined)}
       >
