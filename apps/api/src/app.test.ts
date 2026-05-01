@@ -74,6 +74,10 @@ describe("createApp", () => {
   });
 
   it("reports runtime system status", async () => {
+    vi.stubEnv("SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("UTOPIA_OWNER_ID", "");
+
     const repository = createUtopiaRepository();
     const app = createApp(repository);
 
