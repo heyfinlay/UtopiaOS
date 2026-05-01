@@ -1,11 +1,15 @@
-import { spawn } from "node:child_process";
-import process from "node:process";
-
 import {
   type Lead,
   researchLeadResultSchema,
   type ResearchLeadResult,
 } from "@utopia/schemas";
+
+type EnvShape = Record<string, string | undefined>;
+
+const runtimeEnv: EnvShape =
+  typeof process !== "undefined" && process.env
+    ? (process.env as EnvShape)
+    : {};
 
 export type ResearchLeadExecution = {
   result: ResearchLeadResult;
@@ -134,47 +138,60 @@ const runOpenClawCommand = async (
   prompt: string,
 ): Promise<ResearchLeadResult> =>
   new Promise((resolve, reject) => {
-    const child = spawn("sh", ["-lc", command], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const importNodeChildProcess = async () => {
+      const nodeChildProcessSpecifier = ["node", "child_process"].join(":");
+      return import(nodeChildProcessSpecifier);
+    };
 
-    let stdout = "";
-    let stderr = "";
+    void importNodeChildProcess()
+      .then(({ spawn }) => {
+        const child = spawn("sh", ["-lc", command], {
+          stdio: ["pipe", "pipe", "pipe"],
+        });
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
+        let stdout = "";
+        let stderr = "";
 
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+        child.stdout.on("data", (chunk: { toString: () => string }) => {
+          stdout += chunk.toString();
+        });
 
-    child.on("error", (error) => {
-      reject(error);
-    });
+        child.stderr.on("data", (chunk: { toString: () => string }) => {
+          stderr += chunk.toString();
+        });
 
-    child.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(compact([`OpenClaw command exited with code ${code}.`, stderr.trim()])));
-        return;
-      }
+        child.on("error", (error: Error) => {
+          reject(error);
+        });
 
-      try {
-        resolve(researchLeadResultSchema.parse(JSON.parse(stdout)));
-      } catch (error) {
-        reject(error);
-      }
-    });
+        child.on("close", (code: number | null) => {
+          if (code !== 0) {
+            reject(
+              new Error(compact([`OpenClaw command exited with code ${code}.`, stderr.trim()])),
+            );
+            return;
+          }
 
-    child.stdin.write(prompt);
-    child.stdin.end();
+          try {
+            resolve(researchLeadResultSchema.parse(JSON.parse(stdout)));
+          } catch (error) {
+            reject(error);
+          }
+        });
+
+        child.stdin.write(prompt);
+        child.stdin.end();
+      })
+      .catch(() => {
+        reject(new Error("OpenClaw CLI is not available in this runtime."));
+      });
   });
 
 export const runResearchLeadAction = async (
   lead: Lead,
 ): Promise<ResearchLeadExecution> => {
   const prompt = buildPrompt(lead);
-  const command = process.env.OPENCLAW_COMMAND;
+  const command = runtimeEnv.OPENCLAW_COMMAND;
 
   if (!command) {
     return {
@@ -203,7 +220,7 @@ export const runResearchLeadAction = async (
 };
 
 export const getAgentConnectionStatus = (
-  command = process.env.OPENCLAW_COMMAND,
+  command = runtimeEnv.OPENCLAW_COMMAND,
 ): AgentConnectionStatus => ({
   configured: Boolean(command?.trim()),
   commandPreview: getCommandPreview(command),

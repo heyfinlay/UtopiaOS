@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import process from "node:process";
-
 import { zValidator } from "@hono/zod-validator";
 import {
   getAgentConnectionStatus,
@@ -122,6 +119,11 @@ type AppContext = {
 };
 
 const publicApiPaths = new Set(["/health", "/api/health", "/api/system/status"]);
+const runtimeEnv =
+  typeof process !== "undefined" && process.env
+    ? (process.env as Record<string, string | undefined>)
+    : {};
+const createRequestId = () => globalThis.crypto.randomUUID();
 
 const verifySupabaseUser = async (
   supabaseUrl: string,
@@ -160,13 +162,13 @@ export const createApp = (
   const app = new Hono<AppContext>();
   const agentStatus = getAgentConnectionStatus();
   const persistence = options.persistence ?? getPersistenceConfigState();
-  const isDevelopment = process.env.NODE_ENV !== "production";
+  const isDevelopment = runtimeEnv.NODE_ENV !== "production";
   const fallbackOwnerId =
     persistence.ownerConfigured && persistence.ownerIdFormatValid
-      ? process.env.UTOPIA_OWNER_ID?.trim() ?? null
+      ? runtimeEnv.UTOPIA_OWNER_ID?.trim() ?? null
       : null;
-  const supabaseUrl = process.env.SUPABASE_URL?.trim() ?? "";
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
+  const supabaseUrl = runtimeEnv.SUPABASE_URL?.trim() ?? "";
+  const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
   const adminClient =
     persistence.supabaseConfigured && !options.createRepositoryForOwner
       ? createSupabaseAdminClient()
@@ -192,7 +194,7 @@ export const createApp = (
   app.use(
     "*",
     cors({
-      origin: process.env.WEB_ORIGIN?.split(",") ?? "*",
+      origin: runtimeEnv.WEB_ORIGIN?.split(",") ?? "*",
     }),
   );
 
@@ -200,7 +202,7 @@ export const createApp = (
     const requestId =
       context.req.header("x-request-id")?.trim() ||
       context.req.header("x-vercel-id")?.trim() ||
-      randomUUID();
+      createRequestId();
     context.set("requestId", requestId);
     context.header("x-request-id", requestId);
     await next();

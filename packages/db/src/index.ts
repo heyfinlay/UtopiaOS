@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import process from "node:process";
-
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   activitySchema,
@@ -213,6 +210,15 @@ export type SchemaCheckResult = {
   missing: string[];
 };
 
+type EnvShape = Record<string, string | undefined>;
+
+const runtimeEnv: EnvShape =
+  typeof process !== "undefined" && process.env
+    ? (process.env as EnvShape)
+    : {};
+
+const createUuid = () => globalThis.crypto.randomUUID();
+
 const zeroXp = (): StatXpMap => ({
   sales: 0,
   delivery: 0,
@@ -224,8 +230,8 @@ const zeroXp = (): StatXpMap => ({
 });
 
 export const createSupabaseAdminClient = (
-  supabaseUrl = process.env.SUPABASE_URL,
-  supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY,
+  supabaseUrl = runtimeEnv.SUPABASE_URL,
+  supabaseServiceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY,
 ) => {
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     throw new Error(
@@ -245,7 +251,7 @@ const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const getPersistenceConfigState = (
-  env: NodeJS.ProcessEnv = process.env,
+  env: EnvShape = runtimeEnv,
 ): PersistenceConfigState => {
   const supabaseUrlConfigured = Boolean(env.SUPABASE_URL?.trim());
   const serviceRoleConfigured = Boolean(env.SUPABASE_SERVICE_ROLE_KEY?.trim());
@@ -372,7 +378,7 @@ const createDefaultDeliveryProfile = () => ({
 const createSeedState = (): UtopiaState => {
   const seedTime = nowIso();
   const researchedLead: Lead = leadSchema.parse({
-    id: randomUUID(),
+    id: createUuid(),
     name: "Mia Ortega",
     company: "Northline Studio",
     website: "https://northlinestudio.co",
@@ -436,7 +442,7 @@ const createSeedState = (): UtopiaState => {
   });
 
   const newLead: Lead = leadSchema.parse({
-    id: randomUUID(),
+    id: createUuid(),
     name: "Eli Bennett",
     company: "Harbor Ridge Advisory",
     website: "https://harborridgeadvisory.com",
@@ -460,7 +466,7 @@ const createSeedState = (): UtopiaState => {
   });
 
   const proposalLead: Lead = leadSchema.parse({
-    id: randomUUID(),
+    id: createUuid(),
     name: "Mason Lee",
     company: "Summit Tax Advisory",
     website: "https://summittaxadvisory.com",
@@ -490,7 +496,7 @@ const createSeedState = (): UtopiaState => {
   });
 
   const wonLead: Lead = leadSchema.parse({
-    id: randomUUID(),
+    id: createUuid(),
     name: "Aria Chen",
     company: "Driftline Studio",
     website: "https://driftlinestudio.com",
@@ -521,7 +527,7 @@ const createSeedState = (): UtopiaState => {
 
   const activities: Activity[] = [
     activitySchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       entityType: "lead",
       entityId: researchedLead.id,
       kind: "lead.researched",
@@ -539,7 +545,7 @@ const createSeedState = (): UtopiaState => {
       createdAt: seedTime,
     }),
     activitySchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       entityType: "lead",
       entityId: proposalLead.id,
       kind: "deal.proposal_followup",
@@ -549,7 +555,7 @@ const createSeedState = (): UtopiaState => {
       createdAt: seedTime,
     }),
     activitySchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       entityType: "lead",
       entityId: wonLead.id,
       kind: "deal.delivery_active",
@@ -562,7 +568,7 @@ const createSeedState = (): UtopiaState => {
 
   const agentRuns: AgentRun[] = [
     agentRunSchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       action: "research_lead",
       mode: "mock",
       status: "completed",
@@ -579,7 +585,7 @@ const createSeedState = (): UtopiaState => {
 
   const clients: Client[] = [
     clientSchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       leadId: wonLead.id,
       company: wonLead.company,
       status: "active",
@@ -597,7 +603,7 @@ const createSeedState = (): UtopiaState => {
 
   const approvals: Approval[] = [
     approvalSchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       action: "send_outbound",
       status: "pending",
       targetType: "lead",
@@ -616,7 +622,7 @@ const createSeedState = (): UtopiaState => {
 
   const templates: Template[] = [
     templateSchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       title: "Research Prompt Contract",
       category: "Agent",
       body:
@@ -627,7 +633,7 @@ const createSeedState = (): UtopiaState => {
       updatedAt: seedTime,
     }),
     templateSchema.parse({
-      id: randomUUID(),
+      id: createUuid(),
       title: "Offer Framing Template",
       category: "Delivery",
       body:
@@ -1120,7 +1126,7 @@ export const createMemoryUtopiaRepository = (
     createLead: async (input) => {
       const timestamp = nowIso();
       const lead = leadSchema.parse({
-        id: randomUUID(),
+        id: createUuid(),
         ...input,
         status: "new",
         nextAction: "Run AI research to sharpen the first outreach angle.",
@@ -1241,7 +1247,7 @@ export const createMemoryUtopiaRepository = (
     createActivity: async (input) => {
       const activity = activitySchema.parse({
         ...input,
-        id: input.id ?? randomUUID(),
+        id: input.id ?? createUuid(),
         createdAt: input.createdAt ?? nowIso(),
       });
 
@@ -1255,7 +1261,7 @@ export const createMemoryUtopiaRepository = (
     createAgentRun: async (input) => {
       const run = agentRunSchema.parse({
         ...input,
-        id: input.id ?? randomUUID(),
+        id: input.id ?? createUuid(),
         startedAt: input.startedAt ?? nowIso(),
       });
 
@@ -1292,7 +1298,7 @@ export const createMemoryUtopiaRepository = (
     createApproval: async (input) => {
       const approval = approvalSchema.parse({
         ...input,
-        id: randomUUID(),
+        id: createUuid(),
         status: "pending",
         requestedBy: "human",
         createdAt: nowIso(),
@@ -1350,7 +1356,7 @@ export const createMemoryUtopiaRepository = (
           "Confirm delivery roadmap.",
       ];
       const client = clientSchema.parse({
-        id: existingClient?.id ?? randomUUID(),
+        id: existingClient?.id ?? createUuid(),
         leadId,
         company: lead.company,
         status: existingClient?.status ?? "active",
@@ -1414,7 +1420,7 @@ export const createMemoryUtopiaRepository = (
       const timestamp = nowIso();
       const template = templateSchema.parse({
         ...input,
-        id: randomUUID(),
+        id: createUuid(),
         version: 1,
         archived: false,
         createdAt: timestamp,
@@ -1461,7 +1467,7 @@ export const createUtopiaRepository = createMemoryUtopiaRepository;
 
 export const createSupabaseUtopiaRepository = ({
   client = createSupabaseAdminClient(),
-  ownerId = process.env.UTOPIA_OWNER_ID,
+  ownerId = runtimeEnv.UTOPIA_OWNER_ID,
 }: SupabaseRepositoryOptions = {}): UtopiaRepository => {
   const configuredOwnerId = ownerId?.trim() || undefined;
   const getOwnerId = () => {
@@ -1807,7 +1813,7 @@ export const createSupabaseUtopiaRepository = ({
       const { data, error } = await client
         .from("activities")
         .insert({
-          id: input.id ?? randomUUID(),
+          id: input.id ?? createUuid(),
           owner_id: ownerId,
           entity_type: input.entityType,
           entity_id: input.entityId,
@@ -1829,7 +1835,7 @@ export const createSupabaseUtopiaRepository = ({
       const { data, error } = await client
         .from("agent_runs")
         .insert({
-          id: input.id ?? randomUUID(),
+          id: input.id ?? createUuid(),
           owner_id: ownerId,
           action: input.action,
           mode: input.mode,
@@ -1884,7 +1890,7 @@ export const createSupabaseUtopiaRepository = ({
       const { data, error } = await client
         .from("approvals")
         .insert({
-          id: randomUUID(),
+          id: createUuid(),
           owner_id: ownerId,
           action: input.action,
           status: "pending",
@@ -1947,7 +1953,7 @@ export const createSupabaseUtopiaRepository = ({
           "Confirm delivery roadmap.",
       ];
       const payload = {
-        id: existingClient?.id ?? randomUUID(),
+        id: existingClient?.id ?? createUuid(),
         owner_id: ownerId,
         lead_id: leadId,
         company: lead.company,
@@ -2022,7 +2028,7 @@ export const createSupabaseUtopiaRepository = ({
       const { data, error } = await client
         .from("templates")
         .insert({
-          id: randomUUID(),
+          id: createUuid(),
           owner_id: ownerId,
           title: input.title,
           category: input.category,
