@@ -147,6 +147,21 @@ describe("createUtopiaRepository", () => {
     vi.unstubAllEnvs();
   });
 
+  it("enables Supabase mode without requiring UTOPIA_OWNER_ID", () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
+    vi.stubEnv("UTOPIA_OWNER_ID", "");
+
+    const config = getPersistenceConfigState();
+    const repository = createConfiguredUtopiaRepository();
+
+    expect(config.supabaseConfigured).toBe(true);
+    expect(config.ownerConfigured).toBe(false);
+    expect(config.ownerIdFormatValid).toBe(false);
+    expect(config.persistenceEnabled).toBe(true);
+    expect(repository.mode).toBe("supabase");
+  });
+
   it("keeps the repository column expectations aligned with the checked-in migrations", () => {
     const migrationSql = [
       "20260430191500_utopia_command_init.sql",

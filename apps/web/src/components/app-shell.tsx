@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { formatCompactCurrency } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/providers/auth-provider";
 import { useUiStore } from "@/store/ui-store";
 
 const navigation = [
@@ -39,6 +40,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const importLeadsOpen = useUiStore((state) => state.importLeadsOpen);
   const setCreateLeadOpen = useUiStore((state) => state.setCreateLeadOpen);
   const setImportLeadsOpen = useUiStore((state) => state.setImportLeadsOpen);
+  const { user, authConfigured, signOut } = useAuth();
 
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
@@ -137,6 +139,22 @@ export function AppShell({ children }: PropsWithChildren) {
                 Revenue moves fast. Risky actions still wait for human approval.
               </p>
             </div>
+            {authConfigured && user ? (
+              <div className="rounded-[1.6rem] border border-white/8 bg-white/4 p-3">
+                <p className="truncate font-mono text-[0.62rem] uppercase tracking-[0.28em] text-slate-500">
+                  {user.email ?? "Authenticated user"}
+                </p>
+                <Button
+                  variant="outline"
+                  className="mt-3 h-10 w-full rounded-[1rem] border-white/10 bg-white/4 text-slate-100 hover:bg-white/10"
+                  onClick={() => {
+                    void signOut();
+                  }}
+                >
+                  Sign Out
+                </Button>
+              </div>
+            ) : null}
           </div>
         </motion.aside>
 

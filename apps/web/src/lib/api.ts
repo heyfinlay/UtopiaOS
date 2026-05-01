@@ -24,12 +24,18 @@ import type {
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "http://localhost:8787" : "");
 
+export const API_UNAUTHORIZED_EVENT = "utopia:api:unauthorized";
+
 export type LeadsResponse = {
   leads: Lead[];
   stats: ProgressStat[];
 };
 
-class ApiError extends Error {
+type AccessTokenProvider = () => Promise<string | null> | string | null;
+
+let accessTokenProvider: AccessTokenProvider | null = null;
+
+export class ApiError extends Error {
   status: number;
 
   constructor(message: string, status: number) {
@@ -39,11 +45,17 @@ class ApiError extends Error {
   }
 }
 
+export const setAccessTokenProvider = (provider: AccessTokenProvider | null) => {
+  accessTokenProvider = provider;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? "GET";
+  const accessToken = accessTokenProvider ? await accessTokenProvider() : null;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       "content-type": "application/json",
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -51,15 +63,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
+      | { error?: string; message?: string }
       | null;
 
     const fallbackMessage =
       response.status === 405
         ? `${method} ${path} returned 405. The API function was not reached; check the Vercel project root, output directory, and /api function deployment.`
         : `Request failed with status ${response.status}.`;
+    const message = payload?.message ?? payload?.error ?? fallbackMessage;
 
-    throw new ApiError(payload?.error ?? fallbackMessage, response.status);
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(API_UNAUTHORIZED_EVENT, {
+          detail: {
+            message,
+          },
+        }),
+      );
+    }
+
+    throw new ApiError(message, response.status);
   }
 
   return (await response.json()) as T;

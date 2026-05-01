@@ -260,8 +260,7 @@ export const getPersistenceConfigState = (
     supabaseConfigured,
     ownerConfigured,
     ownerIdFormatValid,
-    persistenceEnabled:
-      supabaseUrlConfigured && serviceRoleConfigured && ownerConfigured && ownerIdFormatValid,
+    persistenceEnabled: supabaseConfigured,
   };
 };
 
@@ -1464,13 +1463,20 @@ export const createSupabaseUtopiaRepository = ({
   client = createSupabaseAdminClient(),
   ownerId = process.env.UTOPIA_OWNER_ID,
 }: SupabaseRepositoryOptions = {}): UtopiaRepository => {
-  if (!ownerId) {
-    throw new Error("Missing UTOPIA_OWNER_ID for the Supabase repository.");
-  }
+  const configuredOwnerId = ownerId?.trim() || undefined;
+  const getOwnerId = () => {
+    if (!configuredOwnerId) {
+      throw new Error(
+        "Missing owner id for the Supabase repository. Provide an authenticated user id or UTOPIA_OWNER_ID.",
+      );
+    }
 
-  if (!uuidPattern.test(ownerId)) {
-    throw new Error("UTOPIA_OWNER_ID must be a valid UUID for the Supabase repository.");
-  }
+    if (!uuidPattern.test(configuredOwnerId)) {
+      throw new Error("The Supabase repository owner id must be a valid UUID.");
+    }
+
+    return configuredOwnerId;
+  };
 
   const checkSchema = async (): Promise<SchemaCheckResult> => {
     const checks = [
@@ -1534,6 +1540,7 @@ export const createSupabaseUtopiaRepository = ({
   };
 
   const ensureProgressionRow = async () => {
+    const ownerId = getOwnerId();
     const { error } = await client
       .from("progression_stats")
       .upsert({ owner_id: ownerId }, { onConflict: "owner_id", ignoreDuplicates: true });
@@ -1542,6 +1549,7 @@ export const createSupabaseUtopiaRepository = ({
   };
 
   const loadState = async (): Promise<UtopiaState> => {
+    const ownerId = getOwnerId();
     await ensureProgressionRow();
 
     const [
@@ -1608,6 +1616,7 @@ export const createSupabaseUtopiaRepository = ({
   };
 
   const listProgressStats = async () => {
+    const ownerId = getOwnerId();
     await ensureProgressionRow();
     const { data, error } = await client
       .from("progression_stats")
@@ -1621,6 +1630,7 @@ export const createSupabaseUtopiaRepository = ({
   };
 
   const getLeadById = async (leadId: string) => {
+    const ownerId = getOwnerId();
     const { data, error } = await client
       .from("leads")
       .select(
@@ -1646,6 +1656,7 @@ export const createSupabaseUtopiaRepository = ({
     listLeads: async () => (await loadState()).leads,
     getLead: getLeadById,
     createLead: async (input) => {
+      const ownerId = getOwnerId();
       const { data, error } = await client
         .from("leads")
         .insert({
@@ -1672,6 +1683,7 @@ export const createSupabaseUtopiaRepository = ({
       return toLead(data as LeadRow);
     },
     updateLead: async (leadId, input) => {
+      const ownerId = getOwnerId();
       const existingLead = await getLeadById(leadId);
 
       if (!existingLead) {
@@ -1716,6 +1728,7 @@ export const createSupabaseUtopiaRepository = ({
       return data ? toLead(data as LeadRow) : null;
     },
     updateLeadStatus: async (leadId, status) => {
+      const ownerId = getOwnerId();
       const { data, error } = await client
         .from("leads")
         .update({ status })
@@ -1731,6 +1744,7 @@ export const createSupabaseUtopiaRepository = ({
       return data ? toLead(data as LeadRow) : null;
     },
     applyResearchToLead: async (leadId, research) => {
+      const ownerId = getOwnerId();
       const existingLead = await getLeadById(leadId);
 
       const { data, error } = await client
@@ -1755,6 +1769,7 @@ export const createSupabaseUtopiaRepository = ({
       return data ? toLead(data as LeadRow) : null;
     },
     awardXp: async (xpAwards) => {
+      const ownerId = getOwnerId();
       await ensureProgressionRow();
 
       const { data: currentRow, error: readError } = await client
@@ -1788,6 +1803,7 @@ export const createSupabaseUtopiaRepository = ({
       return listProgressStatsFromMap(mapProgressionStatsRow(data as ProgressionStatsRow));
     },
     createActivity: async (input) => {
+      const ownerId = getOwnerId();
       const { data, error } = await client
         .from("activities")
         .insert({
@@ -1809,6 +1825,7 @@ export const createSupabaseUtopiaRepository = ({
       return toActivity(data as ActivityRow);
     },
     createAgentRun: async (input) => {
+      const ownerId = getOwnerId();
       const { data, error } = await client
         .from("agent_runs")
         .insert({
@@ -1836,6 +1853,7 @@ export const createSupabaseUtopiaRepository = ({
       return toAgentRun(data as AgentRunRow);
     },
     updateAgentRun: async (runId, updates) => {
+      const ownerId = getOwnerId();
       const payload: Record<string, unknown> = {};
 
       if (updates.mode) payload.mode = updates.mode;
@@ -1862,6 +1880,7 @@ export const createSupabaseUtopiaRepository = ({
     },
     listApprovals: async () => (await loadState()).approvals,
     createApproval: async (input) => {
+      const ownerId = getOwnerId();
       const { data, error } = await client
         .from("approvals")
         .insert({
@@ -1884,6 +1903,7 @@ export const createSupabaseUtopiaRepository = ({
       return toApproval(data as ApprovalRow);
     },
     resolveApproval: async (approvalId, decision) => {
+      const ownerId = getOwnerId();
       const { data, error } = await client
         .from("approvals")
         .update({ status: decision, resolved_at: nowIso() })
@@ -1898,6 +1918,7 @@ export const createSupabaseUtopiaRepository = ({
     },
     listClients: async () => (await loadState()).clients,
     promoteLeadToClient: async (leadId, input = {}) => {
+      const ownerId = getOwnerId();
       const lead = await getLeadById(leadId);
 
       if (!lead) {
@@ -1962,6 +1983,7 @@ export const createSupabaseUtopiaRepository = ({
       return { client: toClient(clientRow as ClientRow), lead: updatedLead };
     },
     updateClient: async (clientId, input) => {
+      const ownerId = getOwnerId();
       const { data: currentRow, error: currentError } = await client
         .from("clients")
         .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
@@ -1996,6 +2018,7 @@ export const createSupabaseUtopiaRepository = ({
     },
     listTemplates: async () => (await loadState()).templates,
     createTemplate: async (input) => {
+      const ownerId = getOwnerId();
       const { data, error } = await client
         .from("templates")
         .insert({
@@ -2014,6 +2037,7 @@ export const createSupabaseUtopiaRepository = ({
       return toTemplate(data as TemplateRow);
     },
     updateTemplate: async (templateId, input) => {
+      const ownerId = getOwnerId();
       const { data: currentRow, error: currentError } = await client
         .from("templates")
         .select("id, title, category, body, metadata, created_at, updated_at")
@@ -2054,7 +2078,7 @@ export const createSupabaseUtopiaRepository = ({
 export const createConfiguredUtopiaRepository = (): UtopiaRepository => {
   const config = getPersistenceConfigState();
 
-  if (config.persistenceEnabled) {
+  if (config.supabaseConfigured) {
     return createSupabaseUtopiaRepository();
   }
 

@@ -12,24 +12,44 @@ import { Toaster } from "sonner";
 
 import App from "./App.tsx";
 import "./index.css";
+import { ApiError } from "@/lib/api";
+import { AuthProvider } from "@/providers/auth-provider";
 
 document.documentElement.classList.add("dark");
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) => {
+        if (error instanceof ApiError && error.status < 500) {
+          return false;
+        }
+
+        return failureCount < 1;
+      },
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      retry: false,
+    },
+  },
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            className:
-              "!border-white/10 !bg-slate-950/90 !text-slate-100 !backdrop-blur-xl",
-          }}
-        />
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <App />
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              className:
+                "!border-white/10 !bg-slate-950/90 !text-slate-100 !backdrop-blur-xl",
+            }}
+          />
+        </BrowserRouter>
+      </AuthProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

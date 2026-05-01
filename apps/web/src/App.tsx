@@ -1,5 +1,6 @@
 import { Outlet, Route, Routes } from "react-router-dom";
 
+import { AuthGate } from "@/components/auth-gate";
 import { AppShell } from "@/components/app-shell";
 import { AgentsPage } from "@/pages/agents-page";
 import { ClientsPage } from "@/pages/clients-page";
@@ -18,16 +19,18 @@ function ShellLayout() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route element={<ShellLayout />}>
-        <Route index element={<CommandCenterPage />} />
-        <Route path="/leads" element={<LeadsPage />} />
-        <Route path="/leads/:leadId" element={<LeadsPage />} />
-        <Route path="/clients" element={<ClientsPage />} />
-        <Route path="/missions" element={<MissionsPage />} />
-        <Route path="/vault" element={<VaultPage />} />
-        <Route path="/agents" element={<AgentsPage />} />
-      </Route>
-    </Routes>
+    <AuthGate>
+      <Routes>
+        <Route element={<ShellLayout />}>
+          <Route index element={<CommandCenterPage />} />
+          <Route path="/leads" element={<LeadsPage />} />
+          <Route path="/leads/:leadId" element={<LeadsPage />} />
+          <Route path="/clients" element={<ClientsPage />} />
+          <Route path="/missions" element={<MissionsPage />} />
+          <Route path="/vault" element={<VaultPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+        </Route>
+      </Routes>
+    </AuthGate>
   );
 }

@@ -476,12 +476,22 @@ export const systemSchemaCheckSchema = z.object({
   missing: z.array(z.string()),
 });
 
+export const ownerSourceSchema = z.enum([
+  "authenticated-user",
+  "env-fallback",
+  "memory-demo",
+  "none",
+]);
+
 export const systemStatusSchema = z.object({
   repositoryMode: repositoryModeSchema,
   supabaseUrlConfigured: z.boolean(),
   serviceRoleConfigured: z.boolean(),
   supabaseConfigured: z.boolean(),
   persistenceEnabled: z.boolean(),
+  authRequired: z.boolean(),
+  currentRequestAuthenticated: z.boolean(),
+  ownerSource: ownerSourceSchema,
   ownerConfigured: z.boolean(),
   ownerIdFormatValid: z.boolean(),
   agentCommandConfigured: z.boolean(),

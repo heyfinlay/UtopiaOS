@@ -9,6 +9,31 @@ import {
 import { createApp } from "./app";
 
 describe("createApp", () => {
+  const createSupabaseModeRepository = (): UtopiaRepository => {
+    const repository = createMemoryUtopiaRepository({
+      leads: [],
+      clients: [],
+      approvals: [],
+      templates: [],
+      activities: [],
+      agentRuns: [],
+      statXp: {
+        sales: 0,
+        delivery: 0,
+        content: 0,
+        systems: 0,
+        relationships: 0,
+        revenue: 0,
+        discipline: 0,
+      },
+    });
+
+    return {
+      ...repository,
+      mode: "supabase",
+    };
+  };
+
   it("creates and researches a lead end-to-end", async () => {
     const repository = createUtopiaRepository();
     const app = createApp(repository);
@@ -56,7 +81,133 @@ describe("createApp", () => {
     expect(payload.agentMode).toBe("mock");
     expect(payload.supabaseUrlConfigured).toBe(false);
     expect(payload.serviceRoleConfigured).toBe(false);
+    expect(payload.authRequired).toBe(false);
+    expect(payload.currentRequestAuthenticated).toBe(false);
+    expect(payload.ownerSource).toBe("memory-demo");
     expect(payload.ownerIdFormatValid).toBe(false);
+  });
+
+  it("rejects unauthenticated dashboard access in supabase mode", async () => {
+    const repository = createSupabaseModeRepository();
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => null),
+    });
+
+    const response = await app.request("/api/dashboard");
+
+    expect(response.status).toBe(401);
+    const payload = await response.json();
+    expect(payload.error).toBe("Unauthorized");
+  });
+
+  it("allows authenticated dashboard access in supabase mode", async () => {
+    const repository = createSupabaseModeRepository();
+    const ownerRepository = createMemoryUtopiaRepository({
+      leads: [],
+      clients: [],
+      approvals: [],
+      templates: [],
+      activities: [],
+      agentRuns: [],
+      statXp: {
+        sales: 0,
+        delivery: 0,
+        content: 0,
+        systems: 0,
+        relationships: 0,
+        revenue: 0,
+        discipline: 0,
+      },
+    });
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => ({ id: "user-123" })),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...ownerRepository,
+        mode: "supabase" as const,
+      })),
+    });
+
+    const response = await app.request("/api/dashboard", {
+      headers: {
+        authorization: "Bearer token-123",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.stats).toHaveLength(7);
+  });
+
+  it("creates leads in supabase mode for authenticated users", async () => {
+    const repository = createSupabaseModeRepository();
+    const ownerRepository = createMemoryUtopiaRepository({
+      leads: [],
+      clients: [],
+      approvals: [],
+      templates: [],
+      activities: [],
+      agentRuns: [],
+      statXp: {
+        sales: 0,
+        delivery: 0,
+        content: 0,
+        systems: 0,
+        relationships: 0,
+        revenue: 0,
+        discipline: 0,
+      },
+    });
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => ({ id: "user-123" })),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...ownerRepository,
+        mode: "supabase" as const,
+      })),
+    });
+
+    const response = await app.request("/api/leads", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token-123",
+      },
+      body: JSON.stringify({
+        name: "Nina",
+        company: "Cinder Lane",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.lead.company).toBe("Cinder Lane");
+    expect(payload.activity.kind).toBe("lead.created");
+    expect(
+      payload.stats.find((stat: { key: string }) => stat.key === "systems")?.xp,
+    ).toBeGreaterThan(0);
   });
 
   it("returns a valid empty dashboard state", async () => {
