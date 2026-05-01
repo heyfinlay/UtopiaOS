@@ -99,6 +99,13 @@ describe("createApp", () => {
         persistenceEnabled: true,
       },
       verifyAccessToken: vi.fn(async () => null),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...repository,
+        getSchemaCheck: vi.fn(async () => ({
+          ok: true,
+          missing: [],
+        })),
+      })),
     });
 
     const response = await app.request("/api/dashboard");

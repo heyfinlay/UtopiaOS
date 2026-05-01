@@ -15,7 +15,8 @@ const importAppModule = async () => {
   try {
     return await import("../apps/api/dist/app.js");
   } catch {
-    return import("../apps/api/src/app");
+    const sourceAppModulePath = "../apps/api/src/app.ts";
+    return import(sourceAppModulePath);
   }
 };
 

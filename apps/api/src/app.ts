@@ -123,6 +123,36 @@ type AppContext = {
 
 const publicApiPaths = new Set(["/health", "/api/health", "/api/system/status"]);
 
+const verifySupabaseUser = async (
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  accessToken: string,
+): Promise<AuthenticatedUser | null> => {
+  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/auth/v1/user`, {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      apikey: serviceRoleKey,
+    },
+  });
+
+  if (!response.ok) {
+    console.error("Supabase auth verification failed", {
+      status: response.status,
+    });
+    return null;
+  }
+
+  const payload = (await response.json()) as { id?: string | null };
+
+  if (typeof payload.id !== "string" || payload.id.trim() === "") {
+    return null;
+  }
+
+  return {
+    id: payload.id,
+  };
+};
+
 export const createApp = (
   repository: UtopiaRepository = utopiaRepository,
   options: CreateAppOptions = {},
@@ -135,8 +165,10 @@ export const createApp = (
     persistence.ownerConfigured && persistence.ownerIdFormatValid
       ? process.env.UTOPIA_OWNER_ID?.trim() ?? null
       : null;
+  const supabaseUrl = process.env.SUPABASE_URL?.trim() ?? "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
   const adminClient =
-    persistence.supabaseConfigured && !options.verifyAccessToken
+    persistence.supabaseConfigured && !options.createRepositoryForOwner
       ? createSupabaseAdminClient()
       : null;
   const createRepositoryForOwner =
@@ -149,20 +181,11 @@ export const createApp = (
   const verifyAccessToken =
     options.verifyAccessToken ??
     (async (accessToken: string): Promise<AuthenticatedUser | null> => {
-      if (!adminClient) {
+      if (!persistence.supabaseConfigured || !supabaseUrl || !serviceRoleKey) {
         return null;
       }
 
-      const { data, error } = await adminClient.auth.getUser(accessToken);
-
-      if (error || !data.user) {
-        console.error("Supabase auth verification failed", {
-          error,
-        });
-        return null;
-      }
-
-      return { id: data.user.id };
+      return verifySupabaseUser(supabaseUrl, serviceRoleKey, accessToken);
     });
   const authRequired = repository.mode === "supabase";
 

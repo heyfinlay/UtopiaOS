@@ -32,7 +32,7 @@ export function AuthGateView({
   onSignUp,
   children,
 }: AuthGateViewProps) {
-  if (statusLoading || authLoading) {
+  if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#b8b8b8] text-[12px] font-bold uppercase tracking-[0.2em] text-black">
         Initializing Access Gate
@@ -40,7 +40,32 @@ export function AuthGateView({
     );
   }
 
-  if (!authRequired || currentUserAuthenticated || demoMode) {
+  if (currentUserAuthenticated || demoMode) {
+    return <>{children}</>;
+  }
+
+  if (authConfigured) {
+    return (
+      <AuthScreen
+        authReady
+        demoMode={false}
+        loading={statusLoading}
+        message={statusError ?? message}
+        onSignIn={onSignIn}
+        onSignUp={onSignUp}
+      />
+    );
+  }
+
+  if (statusLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#b8b8b8] text-[12px] font-bold uppercase tracking-[0.2em] text-black">
+        Initializing Access Gate
+      </div>
+    );
+  }
+
+  if (!authRequired) {
     return <>{children}</>;
   }
 
@@ -59,16 +84,6 @@ export function AuthGateView({
       />
     );
   }
-
-  return (
-    <AuthScreen
-      authReady
-      demoMode={false}
-      message={statusError ?? message}
-      onSignIn={onSignIn}
-      onSignUp={onSignUp}
-    />
-  );
 }
 
 const isDemoModeAllowed = (status: SystemStatus | undefined, authConfigured: boolean) =>
