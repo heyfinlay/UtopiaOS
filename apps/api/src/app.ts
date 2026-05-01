@@ -26,12 +26,12 @@ import {
   updateTemplateInputSchema,
 } from "@utopia/schemas";
 import {
+  createConfiguredUtopiaRepository,
   createSupabaseAdminClient,
   createSupabaseUtopiaRepository,
   getPersistenceConfigState,
   type PersistenceConfigState,
   type UtopiaRepository,
-  utopiaRepository,
 } from "@utopia/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
@@ -156,7 +156,7 @@ const verifySupabaseUser = async (
 };
 
 export const createApp = (
-  repository: UtopiaRepository = utopiaRepository,
+  repository: UtopiaRepository = createConfiguredUtopiaRepository(),
   options: CreateAppOptions = {},
 ) => {
   const app = new Hono<AppContext>();

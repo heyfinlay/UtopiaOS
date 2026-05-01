@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createMemoryUtopiaRepository,
@@ -9,6 +9,10 @@ import {
 import { createApp } from "./app";
 
 describe("createApp", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const createSupabaseModeRepository = (): UtopiaRepository => {
     const repository = createMemoryUtopiaRepository({
       leads: [],
@@ -85,6 +89,19 @@ describe("createApp", () => {
     expect(payload.currentRequestAuthenticated).toBe(false);
     expect(payload.ownerSource).toBe("memory-demo");
     expect(payload.ownerIdFormatValid).toBe(false);
+  });
+
+  it("uses the configured repository mode when the app is created", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key");
+    vi.stubEnv("UTOPIA_OWNER_ID", "");
+
+    const app = createApp();
+    const response = await app.request("/api/health");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.repositoryMode).toBe("supabase");
   });
 
   it("rejects unauthenticated dashboard access in supabase mode", async () => {

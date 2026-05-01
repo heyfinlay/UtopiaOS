@@ -1572,29 +1572,35 @@ export const createSupabaseUtopiaRepository = ({
           .select(
             "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
           )
-          .eq("owner_id", ownerId),
+          .eq("owner_id", ownerId)
+          .order("updated_at", { ascending: false }),
         client
           .from("clients")
           .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
-          .eq("owner_id", ownerId),
+          .eq("owner_id", ownerId)
+          .order("updated_at", { ascending: false }),
         client
           .from("approvals")
           .select("id, action, status, target_type, target_id, title, summary, requested_by, payload, created_at, resolved_at")
-          .eq("owner_id", ownerId),
+          .eq("owner_id", ownerId)
+          .order("created_at", { ascending: false }),
         client
           .from("templates")
           .select("id, title, category, body, metadata, created_at, updated_at")
-          .eq("owner_id", ownerId),
+          .eq("owner_id", ownerId)
+          .order("updated_at", { ascending: false }),
         client
           .from("activities")
           .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
-          .eq("owner_id", ownerId),
+          .eq("owner_id", ownerId)
+          .order("created_at", { ascending: false }),
         client
           .from("agent_runs")
           .select(
             "id, action, mode, status, summary, target_type, target_id, requires_approval, prompt, started_at, completed_at, error",
           )
-          .eq("owner_id", ownerId),
+          .eq("owner_id", ownerId)
+          .order("started_at", { ascending: false }),
         client
           .from("progression_stats")
           .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
@@ -1884,7 +1890,8 @@ export const createSupabaseUtopiaRepository = ({
 
       return data ? toAgentRun(data as AgentRunRow) : null;
     },
-    listApprovals: async () => (await loadState()).approvals,
+    listApprovals: async () =>
+      [...(await loadState()).approvals].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     createApproval: async (input) => {
       const ownerId = getOwnerId();
       const { data, error } = await client
@@ -1922,7 +1929,8 @@ export const createSupabaseUtopiaRepository = ({
 
       return data ? toApproval(data as ApprovalRow) : null;
     },
-    listClients: async () => (await loadState()).clients,
+    listClients: async () =>
+      [...(await loadState()).clients].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     promoteLeadToClient: async (leadId, input = {}) => {
       const ownerId = getOwnerId();
       const lead = await getLeadById(leadId);
@@ -2022,7 +2030,8 @@ export const createSupabaseUtopiaRepository = ({
 
       return data ? toClient(data as ClientRow) : null;
     },
-    listTemplates: async () => (await loadState()).templates,
+    listTemplates: async () =>
+      [...(await loadState()).templates].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     createTemplate: async (input) => {
       const ownerId = getOwnerId();
       const { data, error } = await client
