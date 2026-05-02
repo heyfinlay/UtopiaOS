@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 
 const supabaseUrl = process.env.SUPABASE_URL?.trim() || "https://example.supabase.co";
 const serviceRoleKey =
@@ -82,4 +83,75 @@ for (const check of checks) {
   }
 
   console.log(`${check.name}: ${response.status}`);
+}
+
+const server = createServer((request, response) => {
+  void handler(request, response).catch((error) => {
+    console.error(error);
+    response.statusCode = 500;
+    response.end("Vercel entrypoint smoke failed.");
+  });
+});
+
+await new Promise((resolve) => {
+  server.listen(0, "127.0.0.1", resolve);
+});
+
+try {
+  const address = server.address();
+
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start smoke test server.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const nodeChecks = [
+    {
+      name: "Node GET /system/status",
+      response: await fetch(`${baseUrl}/system/status`),
+      expected: new Set([200, 401]),
+    },
+    {
+      name: "Node GET /leads",
+      response: await fetch(`${baseUrl}/leads`),
+      expected: new Set([401]),
+    },
+    {
+      name: "Node POST /leads",
+      response: await fetch(`${baseUrl}/leads`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Nina",
+          company: "Cinder Lane",
+          source: "Smoke test",
+        }),
+      }),
+      expected: new Set([401]),
+    },
+  ];
+
+  for (const check of nodeChecks) {
+    if (check.response.status === 500 || !check.expected.has(check.response.status)) {
+      const body = await check.response.text();
+      throw new Error(
+        `${check.name} returned unexpected status ${check.response.status}: ${body}`,
+      );
+    }
+
+    console.log(`${check.name}: ${check.response.status}`);
+  }
+} finally {
+  await new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
 }
