@@ -12,12 +12,14 @@ describe("AuthGateView", () => {
         currentUserAuthenticated={false}
         onSignIn={vi.fn(async () => undefined)}
         onSignUp={vi.fn(async () => undefined)}
+        onResetPassword={vi.fn(async () => undefined)}
       >
         <div>app</div>
       </AuthGateView>,
     );
 
-    expect(markup).toContain("ACCESS GATE");
+    expect(markup).toContain("Access Panel");
     expect(markup).toContain("SUPABASE AUTH: READY");
+    expect(markup).toContain("Create Account");
   });
 });

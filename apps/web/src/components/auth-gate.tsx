@@ -10,6 +10,7 @@ type AuthGateViewProps = PropsWithChildren<{
   message?: string | null;
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignUp: (email: string, password: string) => Promise<void>;
+  onResetPassword: (email: string) => Promise<void>;
 }>;
 
 export function AuthGateView({
@@ -19,6 +20,7 @@ export function AuthGateView({
   message,
   onSignIn,
   onSignUp,
+  onResetPassword,
   children,
 }: AuthGateViewProps) {
   if (!authConfigured) {
@@ -31,6 +33,7 @@ export function AuthGateView({
         }
         onSignIn={onSignIn}
         onSignUp={onSignUp}
+        onResetPassword={onResetPassword}
       />
     );
   }
@@ -53,12 +56,21 @@ export function AuthGateView({
       message={message}
       onSignIn={onSignIn}
       onSignUp={onSignUp}
+      onResetPassword={onResetPassword}
     />
   );
 }
 
 export function AuthGate({ children }: PropsWithChildren) {
-  const { authConfigured, loading, session, authMessage, signIn, signUp } = useAuth();
+  const {
+    authConfigured,
+    loading,
+    session,
+    authMessage,
+    signIn,
+    signUp,
+    resetPassword,
+  } = useAuth();
 
   return (
     <AuthGateView
@@ -68,6 +80,7 @@ export function AuthGate({ children }: PropsWithChildren) {
       message={authMessage}
       onSignIn={signIn}
       onSignUp={signUp}
+      onResetPassword={resetPassword}
     >
       {children}
     </AuthGateView>

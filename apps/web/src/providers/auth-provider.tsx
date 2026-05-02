@@ -25,6 +25,7 @@ type AuthContextValue = {
   authMessage: string | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   signOut: (message?: string | null) => Promise<void>;
   clearAuthMessage: () => void;
 };
@@ -131,6 +132,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const resetPassword = useCallback(async (email: string) => {
+    if (!supabase) {
+      throw new Error("Supabase Auth is not configured for the browser.");
+    }
+
+    setAuthMessage(null);
+    const redirectTo =
+      typeof window !== "undefined"
+        ? `${window.location.origin}${window.location.pathname}`
+        : undefined;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    if (error) {
+      throw new Error(getSafeMessage("Password reset failed.", error));
+    }
+  }, []);
+
   const signOut = useCallback(async (message?: string | null) => {
     if (message) {
       setAuthMessage(message);
@@ -165,10 +185,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       authMessage: authMessage ?? supabaseBrowserAuthMessage,
       signIn,
       signUp,
+      resetPassword,
       signOut,
       clearAuthMessage: () => setAuthMessage(null),
     }),
-    [authMessage, loading, session, signIn, signOut, signUp, user],
+    [authMessage, loading, resetPassword, session, signIn, signOut, signUp, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
