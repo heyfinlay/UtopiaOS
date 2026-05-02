@@ -2,10 +2,12 @@
   "name": "utopia-command",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "packageManager": "pnpm@10.18.3",
   "scripts": {
     "dev": "pnpm --parallel --filter @utopia/api --filter @utopia/web dev",
     "build": "pnpm -r --if-present build",
+    "smoke:vercel-entrypoint": "pnpm --filter @utopia/api build && node scripts/smoke-vercel-entrypoint.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
     "test": "pnpm -r --if-present test"

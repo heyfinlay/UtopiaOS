@@ -158,6 +158,74 @@ describe("createApp", () => {
     expect(payload.error).toBe("Unauthorized");
   });
 
+  it("rejects unauthenticated lead reads in supabase mode without crashing", async () => {
+    const repository = createSupabaseModeRepository();
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => null),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...repository,
+        getSchemaCheck: vi.fn(async () => ({
+          ok: true,
+          missing: [],
+        })),
+      })),
+    });
+
+    const response = await app.request("/api/leads");
+
+    expect(response.status).toBe(401);
+    const payload = await response.json();
+    expect(payload.error).toBe("Unauthorized");
+    expect(payload.requestId).toEqual(expect.any(String));
+  });
+
+  it("routes unauthenticated lead creation to auth instead of module-load failure", async () => {
+    const repository = createSupabaseModeRepository();
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => null),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...repository,
+        getSchemaCheck: vi.fn(async () => ({
+          ok: true,
+          missing: [],
+        })),
+      })),
+    });
+
+    const response = await app.request("/api/leads", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Nina",
+        company: "Cinder Lane",
+        source: "Smoke test",
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    const payload = await response.json();
+    expect(payload.error).toBe("Unauthorized");
+    expect(payload.requestId).toEqual(expect.any(String));
+  });
+
   it("does not use UTOPIA_OWNER_ID as a public-route fallback owner in supabase mode", async () => {
     vi.stubEnv("UTOPIA_OWNER_ID", "550e8400-e29b-41d4-a716-446655440000");
 

@@ -50,6 +50,14 @@ Do not set `VITE_API_URL` unless the API is deployed separately.
 
 Apply all migrations under [`supabase/migrations`](/Users/finlaysturzaker/Documents/UtopiaOS/supabase/migrations) before deploying. The API now fails startup if the required Supabase server env vars are missing.
 
+## API Module Strategy
+
+The Vercel catch-all function is [`api/[...path].js`](/Users/finlaysturzaker/Documents/UtopiaOS/api/[...path].js). The repository root declares `"type": "module"`, so this function is treated as ESM and can use Vercel's Web `Request`/`Response` handler shape directly.
+
+The API application package, [`apps/api`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api), is also ESM and builds [`apps/api/dist/app.js`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api/dist/app.js) with `tsup --format esm`. The Vercel function dynamically imports that built module and caches the created Hono app promise across invocations.
+
+Do not statically import or CommonJS `require()` [`apps/api/src/app.js`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api/src/app.ts) from a Vercel function. Vercel may emit a CommonJS function wrapper for TypeScript entrypoints, and requiring the API package's ESM module causes `ERR_REQUIRE_ESM` before any route handler executes.
+
 ## Verification
 
 Run locally before deploy:
@@ -58,6 +66,7 @@ Run locally before deploy:
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm smoke:vercel-entrypoint
 ```
 
 Then verify the deployment:
