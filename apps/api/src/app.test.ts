@@ -357,6 +357,50 @@ describe("createApp", () => {
     await expect(ownerRepository.listLeads()).resolves.toHaveLength(1);
   });
 
+  it("returns JSON errors with the request id when lead creation fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repository = createSupabaseModeRepository();
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => ({ id: "user-123" })),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...repository,
+        createLead: vi.fn(async () => {
+          throw new Error("Supabase operation timed out: leads.insert");
+        }),
+        mode: "supabase" as const,
+      })),
+    });
+
+    const response = await app.request("/api/leads", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token-123",
+        "x-request-id": "request-123",
+      },
+      body: JSON.stringify({
+        name: "Nina",
+        company: "Cinder Lane",
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "Lead creation failed.",
+      message: "Supabase operation timed out: leads.insert",
+      requestId: "request-123",
+    });
+  });
+
   it("returns a valid empty dashboard state", async () => {
     const repository = createMemoryUtopiaRepository({
       leads: [],

@@ -3,13 +3,81 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createConfiguredUtopiaRepository,
+  createSupabaseUtopiaRepository,
   createUtopiaRepository,
   getPersistenceConfigState,
+  withTimeout,
 } from "./index";
+
+const ownerId = "11111111-1111-4111-8111-111111111111";
+
+const leadRow = {
+  id: "lead-1",
+  name: "Ava",
+  company: "Orbit Systems",
+  website: "https://orbit.systems",
+  source: "Inbound form",
+  priority: "critical",
+  status: "new",
+  notes: null,
+  next_action: "Run AI research to sharpen the first outreach angle.",
+  research_payload: {},
+  commercial_profile: {
+    pipelineValue: 20000,
+    weightedValue: 6000,
+    closedValue: 0,
+    invoiceIssued: 0,
+    invoiceOutstanding: 0,
+    clientSavingsValue: 0,
+    nextRevenueMilestone: "Qualify budget and decision urgency.",
+  },
+  delivery_profile: {
+    stage: "scoping",
+    completionPercent: 10,
+    nextDeliverable: "Map the first workflow bottleneck with the client.",
+    dueLabel: "This week",
+    riskLevel: "medium",
+  },
+  last_researched_at: null,
+  created_at: "2026-01-01T00:00:00.000Z",
+  updated_at: "2026-01-01T00:00:00.000Z",
+} as const;
+
+const createLeadsOnlyClient = () => {
+  const insert = vi.fn();
+  const select = vi.fn();
+  const single = vi.fn(async () => ({ data: leadRow, error: null }));
+  const from = vi.fn((table: string) => {
+    if (table !== "leads") {
+      throw new Error(`Unexpected table: ${table}`);
+    }
+
+    const builder = {
+      insert: (payload: unknown) => {
+        insert(payload);
+        return builder;
+      },
+      select: (columns: string) => {
+        select(columns);
+        return builder;
+      },
+      single,
+    };
+
+    return builder;
+  });
+
+  return {
+    client: { from },
+    calls: { from, insert, select, single },
+  };
+};
 
 describe("createUtopiaRepository", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("creates leads and reflects them in the dashboard", async () => {
@@ -27,6 +95,106 @@ describe("createUtopiaRepository", () => {
     expect(dashboard.pipeline[0]?.value).toBeGreaterThan(0);
     expect(dashboard.revenue.pipeline).toBeGreaterThan(0);
     expect(dashboard.actionItems.length).toBeGreaterThan(0);
+  });
+
+  it("creates Supabase leads through the direct leads insert path", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { client, calls } = createLeadsOnlyClient();
+    const repository = createSupabaseUtopiaRepository({
+      client: client as never,
+      ownerId,
+    });
+
+    const lead = await repository.createLead({
+      name: "Ava",
+      company: "Orbit Systems",
+      priority: "critical",
+      website: "https://orbit.systems",
+      source: "Inbound form",
+    });
+
+    expect(lead.company).toBe("Orbit Systems");
+    expect(calls.from).toHaveBeenCalledWith("leads");
+    expect(calls.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner_id: ownerId,
+        name: "Ava",
+        company: "Orbit Systems",
+        website: "https://orbit.systems",
+        source: "Inbound form",
+        priority: "critical",
+        status: "new",
+      }),
+    );
+    expect(calls.select).toHaveBeenCalledWith(expect.stringContaining("commercial_profile"));
+    expect(calls.single).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns created Supabase leads when optional activity side effects fail", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { client, calls } = createLeadsOnlyClient();
+    const from = vi.fn((table: string) => {
+      if (table === "leads") {
+        return client.from(table);
+      }
+
+      if (table === "progression_stats") {
+        return {
+          upsert: vi.fn(async () => ({
+            data: null,
+            error: { message: "stats unavailable" },
+          })),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+    const repository = createSupabaseUtopiaRepository({
+      client: { from } as never,
+      ownerId,
+    });
+
+    const result = await repository.createLeadWithActivity({
+      lead: {
+        name: "Ava",
+        company: "Orbit Systems",
+        priority: "critical",
+      },
+      activity: {
+        entityType: "lead",
+        entityId: "pending-lead",
+        kind: "lead.created",
+        actor: "human",
+        message: "Lead created.",
+        xpAwards: {
+          sales: 0,
+          delivery: 0,
+          content: 0,
+          systems: 0,
+          relationships: 0,
+          revenue: 0,
+          discipline: 0,
+        },
+      },
+      xpAwards: { sales: 1 },
+    });
+
+    expect(result.lead.company).toBe("Orbit Systems");
+    expect(result.activity.kind).toBe("lead.created");
+    expect(calls.single).toHaveBeenCalledTimes(1);
+    expect(console.error).toHaveBeenCalledWith(
+      "lead.create.side_effects.failed",
+      expect.objectContaining({
+        error: expect.stringContaining("Failed to ensure progression stats row."),
+      }),
+    );
+  });
+
+  it("throws clear timeout errors for slow Supabase operations", async () => {
+    await expect(
+      withTimeout("leads.insert", new Promise(() => undefined), 1),
+    ).rejects.toThrow("Supabase operation timed out: leads.insert");
   });
 
   it("awards xp and stores research results", async () => {

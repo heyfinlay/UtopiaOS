@@ -245,6 +245,51 @@ export type SchemaCheckResult = {
   missing: string[];
 };
 
+const defaultSupabaseTimeoutMs = 8_000;
+const optionalSideEffectTimeoutMs = 4_000;
+const leadSelectColumns =
+  "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at";
+
+export const withTimeout = async <T>(
+  label: string,
+  promise: PromiseLike<T>,
+  timeoutMs = defaultSupabaseTimeoutMs,
+): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timeout = globalThis.setTimeout(() => {
+      reject(new Error(`Supabase operation timed out: ${label}`));
+    }, timeoutMs);
+
+    Promise.resolve(promise).then(
+      (value) => {
+        globalThis.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        globalThis.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+
+const logLeadCreate = (
+  event: string,
+  metadata: Record<string, string | number | boolean | undefined> = {},
+) => {
+  console.info(event, metadata);
+};
+
+const logLeadCreateSideEffectFailure = (
+  event: string,
+  error: unknown,
+  metadata: Record<string, string | number | boolean | undefined> = {},
+) => {
+  console.error(event, {
+    ...metadata,
+    error: error instanceof Error ? error.message : String(error),
+  });
+};
+
 type EnvShape = Record<string, string | undefined>;
 
 const runtimeEnv: EnvShape =
@@ -2056,9 +2101,7 @@ export const createSupabaseUtopiaRepository = ({
     const ownerId = getOwnerId();
     const { data, error } = await client
       .from("leads")
-      .select(
-        "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
-      )
+      .select(leadSelectColumns)
       .eq("owner_id", ownerId)
       .eq("id", leadId)
       .maybeSingle();
@@ -2066,6 +2109,40 @@ export const createSupabaseUtopiaRepository = ({
     assertNoError(error, "Failed to fetch lead.");
 
     return data ? toLead(data as LeadRow) : null;
+  };
+
+  const insertLead = async (input: CreateLeadInput): Promise<Lead> => {
+    const ownerId = getOwnerId();
+    const leadInsert = {
+      owner_id: ownerId,
+      name: input.name,
+      company: input.company,
+      website: input.website ?? null,
+      source: input.source ?? null,
+      priority: input.priority,
+      status: "new" as const,
+      notes: input.notes ?? null,
+      next_action: "Run AI research to sharpen the first outreach angle.",
+      research_payload: {},
+      commercial_profile: createDefaultCommercialProfile(input.priority),
+      delivery_profile: createDefaultDeliveryProfile(),
+    };
+
+    logLeadCreate("lead.create.insert.start", {
+      operation: "leads.insert",
+    });
+
+    const { data, error } = await withTimeout(
+      "leads.insert",
+      client.from("leads").insert(leadInsert).select(leadSelectColumns).single(),
+    );
+
+    assertNoError(error, "Failed to create lead.");
+    logLeadCreate("lead.create.insert.success", {
+      operation: "leads.insert",
+    });
+
+    return toLead(data as LeadRow);
   };
 
   return {
@@ -2079,117 +2156,132 @@ export const createSupabaseUtopiaRepository = ({
     listLeads: async () => (await loadState()).leads,
     getLead: getLeadById,
     createLead: async (input) => {
-      const ownerId = getOwnerId();
-      const { data, error } = await client
-        .from("leads")
-        .insert({
-          owner_id: ownerId,
-          name: input.name,
-          company: input.company,
-          website: input.website ?? null,
-          source: input.source ?? null,
-          priority: input.priority,
-          status: "new",
-          notes: input.notes ?? null,
-          next_action: "Run AI research to sharpen the first outreach angle.",
-          research_payload: {},
-          commercial_profile: createDefaultCommercialProfile(input.priority),
-          delivery_profile: createDefaultDeliveryProfile(),
-        })
-        .select(
-          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
-        )
-        .single();
+      logLeadCreate("lead.create.start", {
+        mode: "supabase",
+      });
+      const lead = await insertLead(input);
+      logLeadCreate("lead.create.complete", {
+        mode: "supabase",
+      });
 
-      assertNoError(error, "Failed to create lead.");
-
-      return toLead(data as LeadRow);
+      return lead;
     },
     createLeadWithActivity: async ({ lead: input, activity, xpAwards }) => {
-      const lead = await (async () => {
-        const ownerId = getOwnerId();
-        const { data, error } = await client
-          .from("leads")
-          .insert({
+      logLeadCreate("lead.create.start", {
+        mode: "supabase",
+        withSideEffects: true,
+      });
+      const lead = await insertLead(input);
+      const fallbackActivity = activitySchema.parse({
+        id: activity.id ?? createUuid(),
+        entityType: activity.entityType,
+        entityId: lead.id,
+        kind: activity.kind,
+        actor: activity.actor,
+        message: activity.message,
+        xpAwards: activity.xpAwards,
+        createdAt: activity.createdAt ?? nowIso(),
+      });
+
+      logLeadCreate("lead.create.side_effects.start", {
+        mode: "supabase",
+      });
+
+      try {
+        const stats = await (async () => {
+          const ownerId = getOwnerId();
+          await withTimeout(
+            "progression_stats.ensure",
+            ensureProgressionRow(),
+            optionalSideEffectTimeoutMs,
+          );
+          const { data: currentRow, error: readError } = await withTimeout(
+            "progression_stats.read",
+            client
+              .from("progression_stats")
+              .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
+              .eq("owner_id", ownerId)
+              .single(),
+            optionalSideEffectTimeoutMs,
+          );
+
+          assertNoError(readError, "Failed to read progression stats before XP award.");
+
+          const current = mapProgressionStatsRow(currentRow as ProgressionStatsRow);
+          const next = {
             owner_id: ownerId,
-            name: input.name,
-            company: input.company,
-            website: input.website ?? null,
-            source: input.source ?? null,
-            priority: input.priority,
-            status: "new",
-            notes: input.notes ?? null,
-            next_action: "Run AI research to sharpen the first outreach angle.",
-            research_payload: {},
-            commercial_profile: createDefaultCommercialProfile(input.priority),
-            delivery_profile: createDefaultDeliveryProfile(),
-          })
-          .select(
-            "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
-          )
-          .single();
+            sales: current.sales + (xpAwards.sales ?? 0),
+            delivery: current.delivery + (xpAwards.delivery ?? 0),
+            content: current.content + (xpAwards.content ?? 0),
+            systems: current.systems + (xpAwards.systems ?? 0),
+            relationships: current.relationships + (xpAwards.relationships ?? 0),
+            revenue: current.revenue + (xpAwards.revenue ?? 0),
+            discipline: current.discipline + (xpAwards.discipline ?? 0),
+          };
 
-        assertNoError(error, "Failed to create lead.");
+          const { data, error } = await withTimeout(
+            "progression_stats.upsert",
+            client
+              .from("progression_stats")
+              .upsert(next, { onConflict: "owner_id" })
+              .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
+              .single(),
+            optionalSideEffectTimeoutMs,
+          );
 
-        return toLead(data as LeadRow);
-      })();
-      const stats = await (async () => {
-        const ownerId = getOwnerId();
-        await ensureProgressionRow();
-        const { data: currentRow, error: readError } = await client
-          .from("progression_stats")
-          .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
-          .eq("owner_id", ownerId)
-          .single();
+          assertNoError(error, "Failed to award XP.");
 
-        assertNoError(readError, "Failed to read progression stats before XP award.");
+          return listProgressStatsFromMap(mapProgressionStatsRow(data as ProgressionStatsRow));
+        })();
+        const createdActivity = await (async () => {
+          const ownerId = getOwnerId();
+          const { data, error } = await withTimeout(
+            "activities.insert",
+            client
+              .from("activities")
+              .insert({
+                id: fallbackActivity.id,
+                owner_id: ownerId,
+                entity_type: activity.entityType,
+                entity_id: lead.id,
+                kind: activity.kind,
+                actor: activity.actor,
+                message: activity.message,
+                xp_awards: activity.xpAwards,
+                created_at: fallbackActivity.createdAt,
+              })
+              .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
+              .single(),
+            optionalSideEffectTimeoutMs,
+          );
 
-        const current = mapProgressionStatsRow(currentRow as ProgressionStatsRow);
-        const next = {
-          owner_id: ownerId,
-          sales: current.sales + (xpAwards.sales ?? 0),
-          delivery: current.delivery + (xpAwards.delivery ?? 0),
-          content: current.content + (xpAwards.content ?? 0),
-          systems: current.systems + (xpAwards.systems ?? 0),
-          relationships: current.relationships + (xpAwards.relationships ?? 0),
-          revenue: current.revenue + (xpAwards.revenue ?? 0),
-          discipline: current.discipline + (xpAwards.discipline ?? 0),
+          assertNoError(error, "Failed to create activity.");
+
+          return toActivity(data as ActivityRow);
+        })();
+
+        logLeadCreate("lead.create.complete", {
+          mode: "supabase",
+          withSideEffects: true,
+        });
+
+        return { lead, activity: createdActivity, stats };
+      } catch (error) {
+        logLeadCreateSideEffectFailure("lead.create.side_effects.failed", error, {
+          mode: "supabase",
+        });
+        logLeadCreate("lead.create.complete", {
+          mode: "supabase",
+          withSideEffects: true,
+          sideEffectsPersisted: false,
+        });
+
+        return {
+          lead,
+          activity: fallbackActivity,
+          stats: listProgressStatsFromMap(zeroXp()),
         };
-
-        const { data, error } = await client
-          .from("progression_stats")
-          .upsert(next, { onConflict: "owner_id" })
-          .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
-          .single();
-
-        assertNoError(error, "Failed to award XP.");
-
-        return listProgressStatsFromMap(mapProgressionStatsRow(data as ProgressionStatsRow));
-      })();
-      const createdActivity = await (async () => {
-        const ownerId = getOwnerId();
-        const { data, error } = await client
-          .from("activities")
-          .insert({
-            id: activity.id ?? createUuid(),
-            owner_id: ownerId,
-            entity_type: activity.entityType,
-            entity_id: lead.id,
-            kind: activity.kind,
-            actor: activity.actor,
-            message: activity.message,
-            xp_awards: activity.xpAwards,
-            created_at: activity.createdAt ?? nowIso(),
-          })
-          .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
-          .single();
-
-        assertNoError(error, "Failed to create activity.");
-
-        return toActivity(data as ActivityRow);
-      })();
-
-      return { lead, activity: createdActivity, stats };
+      }
     },
     updateLead: async (leadId, input) => {
       const ownerId = getOwnerId();

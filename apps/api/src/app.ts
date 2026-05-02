@@ -447,7 +447,28 @@ export const createApp = (
     zValidator("json", createLeadInputSchema),
     async (context) => {
       const scopedRepository = getRepository(context);
-      const lead = await scopedRepository.createLead(context.req.valid("json"));
+      let lead;
+
+      try {
+        lead = await scopedRepository.createLead(context.req.valid("json"));
+      } catch (error) {
+        console.error("lead.create.failed", {
+          requestId: context.get("requestId"),
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        return context.json(
+          {
+            error: "Lead creation failed.",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Unknown lead persistence failure.",
+            requestId: context.get("requestId"),
+          },
+          500,
+        );
+      }
 
       return context.json(
         createLeadResponseSchema.parse({
