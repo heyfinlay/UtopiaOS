@@ -126,6 +126,7 @@ type AppContext = {
   };
 };
 
+const API_BUILD_FINGERPRINT = "lead-timeout-debug-2026-05-02-v2";
 const publicApiPaths = new Set(["/health", "/api/health", "/api/system/status"]);
 const runtimeEnv =
   typeof process !== "undefined" && process.env
@@ -133,6 +134,25 @@ const runtimeEnv =
     : {};
 const createRequestId = () => globalThis.crypto.randomUUID();
 const defaultOpenClawTimeoutMs = 45_000;
+
+const getApiLogContext = (context: Context<AppContext>) => ({
+  requestId: context.get("requestId"),
+  fingerprint: API_BUILD_FINGERPRINT,
+  currentUserId: context.get("currentUserId") ?? undefined,
+  ownerSource: context.get("ownerSource"),
+  repositoryMode: context.get("repository").mode,
+});
+
+const logApiPhase = (
+  event: string,
+  context: Context<AppContext>,
+  extra: Record<string, string | number | boolean | undefined> = {},
+) => {
+  console.info(event, {
+    ...getApiLogContext(context),
+    ...extra,
+  });
+};
 
 const getCommandPreview = (command?: string) => {
   if (!command?.trim()) {
@@ -244,6 +264,12 @@ export const createApp = (
     });
   const authRequired = repository.mode === "supabase";
 
+  console.info("api.app.created", {
+    fingerprint: API_BUILD_FINGERPRINT,
+    repositoryMode: repository.mode,
+    supabaseConfigured: persistence.supabaseConfigured,
+  });
+
   app.use(
     "*",
     cors({
@@ -286,19 +312,38 @@ export const createApp = (
       : "";
 
     if (accessToken) {
+      logApiPhase("auth.verify.start", context);
       const authenticatedUser = await verifyAccessToken(accessToken);
 
       if (authenticatedUser) {
+        logApiPhase("auth.verify.success", context, {
+          currentUserId: authenticatedUser.id,
+        });
         context.set("currentUserId", authenticatedUser.id);
         context.set("currentRequestAuthenticated", true);
         context.set("ownerSource", "authenticated-user");
-        context.set("repository", createRepositoryForOwner(authenticatedUser.id));
+        logApiPhase("auth.repository.create.start", context, {
+          currentUserId: authenticatedUser.id,
+        });
+        const authenticatedRepository = createRepositoryForOwner(authenticatedUser.id);
+        context.set("repository", authenticatedRepository);
+        logApiPhase("auth.repository.create.success", context);
         return next();
       }
+
+      logApiPhase("auth.verify.failed", context, {
+        reason: "invalid_token",
+      });
     }
 
     if (publicApiPaths.has(path)) {
       return next();
+    }
+
+    if (!accessToken) {
+      logApiPhase("auth.verify.failed", context, {
+        reason: "missing_bearer_token",
+      });
     }
 
     return context.json(
@@ -352,6 +397,7 @@ export const createApp = (
     context.json({
       ok: true,
       service: "utopia-command-api",
+      apiBuildFingerprint: API_BUILD_FINGERPRINT,
       repositoryMode: context.get("repository").mode,
       agentMode: fallbackAgentStatus.mode,
     }),
@@ -361,6 +407,7 @@ export const createApp = (
     context.json({
       ok: true,
       service: "utopia-command-api",
+      apiBuildFingerprint: API_BUILD_FINGERPRINT,
       repositoryMode: context.get("repository").mode,
       agentMode: fallbackAgentStatus.mode,
       supabaseConfigured: persistence.supabaseConfigured,
@@ -408,22 +455,46 @@ export const createApp = (
   app.get("/api/system/status", async (context) => {
     const agentStatus = await getAgentConnectionStatusSafely();
 
+    const status = systemStatusSchema.parse({
+      repositoryMode: context.get("repository").mode,
+      supabaseUrlConfigured: persistence.supabaseUrlConfigured,
+      serviceRoleConfigured: persistence.serviceRoleConfigured,
+      supabaseConfigured: persistence.supabaseConfigured,
+      persistenceEnabled: repository.mode === "supabase",
+      authRequired,
+      currentRequestAuthenticated: context.get("currentRequestAuthenticated"),
+      ownerSource: context.get("ownerSource"),
+      agentCommandConfigured: agentStatus.configured,
+      agentCommandPreview: agentStatus.commandPreview,
+      agentMode: agentStatus.mode,
+      runtime: agentStatus,
+      schemaCheck: (await context.get("repository").getSchemaCheck()) ?? undefined,
+    });
+
+    return context.json({
+      ...status,
+      apiBuildFingerprint: API_BUILD_FINGERPRINT,
+    });
+  });
+
+  app.post("/api/debug/leads-insert", async (context) => {
+    const scopedRepository = getRepository(context);
+    const debugInput = createLeadInputSchema.parse({
+      name: "Debug Lead",
+      company: "Utopia Runtime Debug",
+      source: "debug route",
+      priority: "normal",
+    });
+    const lead = await scopedRepository.createLead(debugInput);
+
     return context.json(
-      systemStatusSchema.parse({
-        repositoryMode: context.get("repository").mode,
-        supabaseUrlConfigured: persistence.supabaseUrlConfigured,
-        serviceRoleConfigured: persistence.serviceRoleConfigured,
-        supabaseConfigured: persistence.supabaseConfigured,
-        persistenceEnabled: repository.mode === "supabase",
-        authRequired,
-        currentRequestAuthenticated: context.get("currentRequestAuthenticated"),
-        ownerSource: context.get("ownerSource"),
-        agentCommandConfigured: agentStatus.configured,
-        agentCommandPreview: agentStatus.commandPreview,
-        agentMode: agentStatus.mode,
-        runtime: agentStatus,
-        schemaCheck: (await context.get("repository").getSchemaCheck()) ?? undefined,
-      }),
+      {
+        ok: true,
+        apiBuildFingerprint: API_BUILD_FINGERPRINT,
+        requestId: context.get("requestId"),
+        leadId: lead.id,
+      },
+      201,
     );
   });
 
@@ -444,16 +515,43 @@ export const createApp = (
 
   app.post(
     "/api/leads",
-    zValidator("json", createLeadInputSchema),
+    async (context, next) => {
+      logApiPhase("api.leads.post.enter", context);
+      await next();
+    },
+    zValidator("json", createLeadInputSchema, (result, context) => {
+      if (!result.success) {
+        const appContext = context as unknown as Context<AppContext>;
+        console.error("api.leads.post.failed", {
+          ...getApiLogContext(appContext),
+          error: "Invalid lead payload.",
+        });
+
+        return context.json(
+          {
+            error: "Invalid lead payload.",
+            message: "Lead creation payload failed validation.",
+            requestId: appContext.get("requestId"),
+            apiBuildFingerprint: API_BUILD_FINGERPRINT,
+          },
+          400,
+        );
+      }
+
+      return undefined;
+    }),
     async (context) => {
       const scopedRepository = getRepository(context);
       let lead;
 
       try {
+        logApiPhase("api.leads.post.validated", context);
+        logApiPhase("api.leads.createLead.before", context);
         lead = await scopedRepository.createLead(context.req.valid("json"));
+        logApiPhase("api.leads.createLead.after", context);
       } catch (error) {
-        console.error("lead.create.failed", {
-          requestId: context.get("requestId"),
+        console.error("api.leads.post.failed", {
+          ...getApiLogContext(context),
           error: error instanceof Error ? error.message : String(error),
         });
 
@@ -465,15 +563,21 @@ export const createApp = (
                 ? error.message
                 : "Unknown lead persistence failure.",
             requestId: context.get("requestId"),
+            apiBuildFingerprint: API_BUILD_FINGERPRINT,
           },
           500,
         );
       }
 
+      logApiPhase("api.leads.post.response", context);
+
       return context.json(
-        createLeadResponseSchema.parse({
-          lead,
-        }),
+        {
+          ...createLeadResponseSchema.parse({
+            lead,
+          }),
+          apiBuildFingerprint: API_BUILD_FINGERPRINT,
+        },
         201,
       );
     },

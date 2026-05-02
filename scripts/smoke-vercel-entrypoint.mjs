@@ -1,5 +1,10 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
+
+const apiBuildFingerprint = "lead-timeout-debug-2026-05-02-v2";
+const expectedEntrypointImport = 'import("../apps/api/dist/app.js")';
+const apiAppBundleUrl = new URL("../apps/api/dist/app.js", import.meta.url);
+const vercelEntrypointUrl = new URL("../api/[...path].js", import.meta.url);
 
 const supabaseUrl = process.env.SUPABASE_URL?.trim() || "https://example.supabase.co";
 const serviceRoleKey =
@@ -9,7 +14,20 @@ process.env.SUPABASE_URL = supabaseUrl;
 process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;
 process.env.NODE_ENV ??= "test";
 
-const apiAppBundle = readFileSync(new URL("../apps/api/dist/app.js", import.meta.url), "utf8");
+if (!existsSync(apiAppBundleUrl)) {
+  throw new Error("apps/api/dist/app.js does not exist. Run pnpm --filter @utopia/api build first.");
+}
+
+const apiAppBundle = readFileSync(apiAppBundleUrl, "utf8");
+const vercelEntrypoint = readFileSync(vercelEntrypointUrl, "utf8");
+
+if (!apiAppBundle.includes(apiBuildFingerprint)) {
+  throw new Error(`apps/api/dist/app.js does not include ${apiBuildFingerprint}.`);
+}
+
+if (!vercelEntrypoint.includes(expectedEntrypointImport)) {
+  throw new Error("api/[...path].js does not import ../apps/api/dist/app.js.");
+}
 
 if (/from\s+["']@utopia\//.test(apiAppBundle) || /import\(["']@utopia\//.test(apiAppBundle)) {
   throw new Error("apps/api/dist/app.js still imports internal @utopia packages at runtime.");
@@ -46,6 +64,12 @@ const { default: handler } = await import("../api/[...path].js");
 
 const checks = [
   {
+    name: "GET /api/health",
+    request: new Request("https://utopia.local/api/health"),
+    expected: new Set([200]),
+    expectedApiBuildFingerprint: apiBuildFingerprint,
+  },
+  {
     name: "GET /api/system/status",
     request: new Request("https://utopia.local/api/system/status"),
     expected: new Set([200, 401]),
@@ -80,6 +104,16 @@ for (const check of checks) {
     throw new Error(
       `${check.name} returned unexpected status ${response.status}: ${body}`,
     );
+  }
+
+  if (check.expectedApiBuildFingerprint) {
+    const payload = await response.json();
+
+    if (payload.apiBuildFingerprint !== check.expectedApiBuildFingerprint) {
+      throw new Error(
+        `${check.name} returned apiBuildFingerprint ${String(payload.apiBuildFingerprint)}`,
+      );
+    }
   }
 
   console.log(`${check.name}: ${response.status}`);

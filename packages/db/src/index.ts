@@ -272,6 +272,46 @@ export const withTimeout = async <T>(
     );
   });
 
+type AbortableSupabaseQuery<T> = PromiseLike<T> & {
+  abortSignal?: (signal: AbortSignal) => PromiseLike<T>;
+};
+
+export const withAbortableTimeout = async <T>(
+  label: string,
+  query: AbortableSupabaseQuery<T>,
+  timeoutMs = defaultSupabaseTimeoutMs,
+): Promise<T> => {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortableQuery =
+    typeof query.abortSignal === "function"
+      ? query.abortSignal(controller.signal)
+      : query;
+
+  return new Promise<T>((resolve, reject) => {
+    const timeout = globalThis.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error(`Supabase operation timed out: ${label}`));
+    }, timeoutMs);
+
+    Promise.resolve(abortableQuery).then(
+      (value) => {
+        globalThis.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        globalThis.clearTimeout(timeout);
+        reject(
+          timedOut
+            ? new Error(`Supabase operation timed out: ${label}`)
+            : error,
+        );
+      },
+    );
+  });
+};
+
 const logLeadCreate = (
   event: string,
   metadata: Record<string, string | number | boolean | undefined> = {},
@@ -2132,7 +2172,7 @@ export const createSupabaseUtopiaRepository = ({
       operation: "leads.insert",
     });
 
-    const { data, error } = await withTimeout(
+    const { data, error } = await withAbortableTimeout(
       "leads.insert",
       client.from("leads").insert(leadInsert).select(leadSelectColumns).single(),
     );

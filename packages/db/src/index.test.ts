@@ -6,6 +6,7 @@ import {
   createSupabaseUtopiaRepository,
   createUtopiaRepository,
   getPersistenceConfigState,
+  withAbortableTimeout,
   withTimeout,
 } from "./index";
 
@@ -195,6 +196,25 @@ describe("createUtopiaRepository", () => {
     await expect(
       withTimeout("leads.insert", new Promise(() => undefined), 1),
     ).rejects.toThrow("Supabase operation timed out: leads.insert");
+  });
+
+  it("aborts slow Supabase operations when timing out", async () => {
+    let aborted = false;
+    const query = {
+      abortSignal: vi.fn((nextSignal: AbortSignal) => {
+        nextSignal.addEventListener("abort", () => {
+          aborted = true;
+        });
+        return new Promise(() => undefined);
+      }),
+      then: vi.fn(),
+    };
+
+    await expect(withAbortableTimeout("leads.insert", query, 1)).rejects.toThrow(
+      "Supabase operation timed out: leads.insert",
+    );
+    expect(query.abortSignal).toHaveBeenCalledTimes(1);
+    expect(aborted).toBe(true);
   });
 
   it("awards xp and stores research results", async () => {

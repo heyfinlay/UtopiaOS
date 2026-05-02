@@ -100,6 +100,7 @@ describe("createApp", () => {
     const payload = await response.json();
     expect(payload.repositoryMode).toBe("supabase");
     expect(payload.agentMode).toBe("mock");
+    expect(payload.apiBuildFingerprint).toBe("lead-timeout-debug-2026-05-02-v2");
     expect(payload.supabaseUrlConfigured).toBe(true);
     expect(payload.serviceRoleConfigured).toBe(true);
     expect(payload.authRequired).toBe(true);
@@ -118,6 +119,7 @@ describe("createApp", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.repositoryMode).toBe("supabase");
+    expect(payload.apiBuildFingerprint).toBe("lead-timeout-debug-2026-05-02-v2");
   });
 
   it("fails fast when the app is created without required Supabase env", () => {
@@ -354,6 +356,7 @@ describe("createApp", () => {
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.lead.company).toBe("Cinder Lane");
+    expect(payload.apiBuildFingerprint).toBe("lead-timeout-debug-2026-05-02-v2");
     await expect(ownerRepository.listLeads()).resolves.toHaveLength(1);
   });
 
@@ -398,6 +401,7 @@ describe("createApp", () => {
       error: "Lead creation failed.",
       message: "Supabase operation timed out: leads.insert",
       requestId: "request-123",
+      apiBuildFingerprint: "lead-timeout-debug-2026-05-02-v2",
     });
   });
 

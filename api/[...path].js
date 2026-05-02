@@ -1,5 +1,7 @@
 import { handle } from "@hono/node-server/vercel";
 
+const VERCEL_ENTRYPOINT_FINGERPRINT = "vercel-entrypoint-debug-2026-05-02-v2";
+
 export const config = {
   runtime: "nodejs",
 };
@@ -48,8 +50,16 @@ const normalizeWebRequest = (request) => {
 };
 
 const getApp = () => {
+  console.info("vercel.entrypoint.importApp.before", {
+    fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+  });
   appPromise ??= import("../apps/api/dist/app.js")
-    .then(({ createApp }) => createApp())
+    .then(({ createApp }) => {
+      console.info("vercel.entrypoint.importApp.after", {
+        fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+      });
+      return createApp();
+    })
     .catch((error) => {
       appPromise = undefined;
       throw error;
@@ -58,19 +68,56 @@ const getApp = () => {
   return appPromise;
 };
 
-const getNodeHandler = () => {
-  nodeHandlerPromise ??= getApp().then((app) => handle(app));
+const getNodeHandler = (app) => {
+  nodeHandlerPromise ??= Promise.resolve(handle(app));
 
   return nodeHandlerPromise;
 };
 
 export default async function handler(request, response) {
+  console.info("vercel.entrypoint.enter", {
+    fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+    method: request.method,
+    url: request.url,
+  });
+
   if (response) {
-    const nodeHandler = await getNodeHandler();
+    console.info("vercel.entrypoint.getApp.before", {
+      fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+      method: request.method,
+      url: request.url,
+    });
+    const app = await getApp();
+    console.info("vercel.entrypoint.getApp.after", {
+      fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+      method: request.method,
+      url: request.url,
+    });
+    const nodeHandler = await getNodeHandler(app);
+    console.info("vercel.entrypoint.invokeNodeHandler.before", {
+      fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+      method: request.method,
+      url: request.url,
+    });
     return nodeHandler(normalizeNodeRequest(request), response);
   }
 
+  console.info("vercel.entrypoint.getApp.before", {
+    fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+    method: request.method,
+    url: request.url,
+  });
   const app = await getApp();
+  console.info("vercel.entrypoint.getApp.after", {
+    fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+    method: request.method,
+    url: request.url,
+  });
+  console.info("vercel.entrypoint.invokeHonoFetch.before", {
+    fingerprint: VERCEL_ENTRYPOINT_FINGERPRINT,
+    method: request.method,
+    url: request.url,
+  });
 
   return app.fetch(normalizeWebRequest(request));
 }

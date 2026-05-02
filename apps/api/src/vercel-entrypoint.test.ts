@@ -9,6 +9,8 @@ describe("Vercel API entrypoint", () => {
     );
 
     expect(source).toContain('import("../apps/api/dist/app.js")');
+    expect(source).toContain("vercel-entrypoint-debug-2026-05-02-v2");
+    expect(source).toContain("vercel.entrypoint.enter");
     expect(source).not.toContain('from "../apps/api/src/app.js"');
     expect(source).not.toMatch(/\brequire\s*\(/);
   });
