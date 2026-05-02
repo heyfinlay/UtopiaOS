@@ -21,7 +21,8 @@ export function VaultPage() {
     refetchInterval: 20_000,
   });
   const templates = templatesQuery.data?.templates ?? [];
-  const activeTemplates = templates.filter((template) => !template.archived);
+  type Template = (typeof templates)[number];
+  const activeTemplates = templates.filter((template: Template) => !template.archived);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     title: "",
@@ -30,7 +31,7 @@ export function VaultPage() {
   });
 
   const selectedTemplate =
-    activeTemplates.find((template) => template.id === selectedId) ??
+    activeTemplates.find((template: Template) => template.id === selectedId) ??
     activeTemplates[0] ??
     null;
 
@@ -131,7 +132,7 @@ export function VaultPage() {
             <CardTitle className="mt-2 text-2xl">Versioned artifacts</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {activeTemplates.map((template) => (
+            {activeTemplates.map((template: Template) => (
               <button
                 key={template.id}
                 type="button"

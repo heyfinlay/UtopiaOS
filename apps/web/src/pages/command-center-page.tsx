@@ -61,6 +61,14 @@ export function CommandCenterPage() {
     )
     .slice(0, 4);
 
+  type FinanceMetric = (typeof dashboard.revenue.financeMetrics)[number];
+  type Mission = (typeof dashboard.missions)[number];
+  type ActionItem = (typeof dashboard.actionItems)[number];
+  type LeadItem = (typeof topLeads)[number];
+  type PipelineMetric = (typeof dashboard.pipeline)[number];
+  type ActivityItem = (typeof dashboard.recentActivity)[number];
+  type ProgressStat = (typeof dashboard.stats)[number];
+
   return (
     <div className="grid gap-4 xl:grid-cols-[1.25fr_0.95fr_0.95fr]">
       <motion.section
@@ -106,7 +114,7 @@ export function CommandCenterPage() {
         </div>
 
         <div className="mt-8 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {dashboard.revenue.financeMetrics.map((metric) => (
+          {dashboard.revenue.financeMetrics.map((metric: FinanceMetric) => (
             <div
               key={metric.label}
               className="rounded-[1.7rem] border border-white/10 bg-white/5 p-4"
@@ -158,7 +166,7 @@ export function CommandCenterPage() {
               Missions Closed
             </p>
             <p className="mt-3 text-2xl font-semibold text-white">
-              {dashboard.missions.filter((mission) => mission.completed).length}/
+              {dashboard.missions.filter((mission: Mission) => mission.completed).length}/
               {dashboard.missions.length}
             </p>
           </div>
@@ -176,11 +184,11 @@ export function CommandCenterPage() {
           <ClipboardList className="h-5 w-5 text-cyan-100/65" />
         </CardHeader>
         <CardContent className="space-y-3">
-          {dashboard.actionItems.map((item) => (
+          {dashboard.actionItems.map((item: ActionItem) => (
             <Link
               key={item.id}
               to={item.href}
-              className={`block rounded-[1.6rem] border p-4 transition-colors ${actionToneClasses[item.emphasis]}`}
+              className={`block rounded-[1.6rem] border p-4 transition-colors ${actionToneClasses[item.emphasis as keyof typeof actionToneClasses]}`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -210,7 +218,7 @@ export function CommandCenterPage() {
           <Radar className="h-5 w-5 text-emerald-100/65" />
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
-          {topLeads.map((lead) => (
+          {topLeads.map((lead: LeadItem) => (
             <Link
               key={lead.id}
               to={`/leads/${lead.id}`}
@@ -297,7 +305,7 @@ export function CommandCenterPage() {
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr_1fr]">
           <div className="space-y-3">
-            {dashboard.pipeline.map((metric) => (
+            {dashboard.pipeline.map((metric: PipelineMetric) => (
               <div key={metric.label} className="rounded-[1.5rem] border border-white/8 bg-white/4 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-white">{metric.label}</p>
@@ -322,7 +330,7 @@ export function CommandCenterPage() {
             </div>
             <ScrollArea className="mt-4 h-[240px] pr-4">
               <div className="space-y-3">
-                {dashboard.recentActivity.map((activity) => (
+                {dashboard.recentActivity.map((activity: ActivityItem) => (
                   <div key={activity.id} className="rounded-[1.35rem] border border-white/8 bg-slate-950/70 p-4">
                     <p className="text-sm leading-6 text-slate-100">{activity.message}</p>
                     <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.24em] text-slate-500">
@@ -336,7 +344,7 @@ export function CommandCenterPage() {
           </div>
 
           <div className="space-y-3">
-            {dashboard.stats.map((stat) => (
+            {dashboard.stats.map((stat: ProgressStat) => (
               <div key={stat.key} className="rounded-[1.5rem] border border-white/8 bg-white/4 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>

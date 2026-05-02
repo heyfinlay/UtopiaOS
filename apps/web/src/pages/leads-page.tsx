@@ -732,7 +732,7 @@ export function LeadsPage() {
                           Buying signals
                         </p>
                         <ul className="mt-2 space-y-2">
-                          {selectedLead.research.buyingSignals.map((signal) => (
+                          {selectedLead.research.buyingSignals.map((signal: string) => (
                             <li key={signal} className="flex gap-2">
                               <ArrowUpRight className="mt-1 h-4 w-4 text-cyan-100/70" />
                               <span>{signal}</span>
@@ -746,7 +746,7 @@ export function LeadsPage() {
                           Opportunity map
                         </p>
                         <div className="mt-3 space-y-3">
-                          {selectedLead.research.opportunities.map((opportunity) => (
+                          {selectedLead.research.opportunities.map((opportunity: { title: string; confidence: number; reason: string }) => (
                             <div
                               key={opportunity.title}
                               className="rounded-2xl border border-white/8 bg-white/4 p-4"

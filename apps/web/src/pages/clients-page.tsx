@@ -37,6 +37,7 @@ export function ClientsPage() {
   });
 
   const leads = leadsQuery.data?.leads ?? [];
+  type LeadItem = (typeof leads)[number];
   const clientReadyLeads = leads.filter(
     (lead) => lead.research || ["qualified", "proposal", "won"].includes(lead.status),
   );
@@ -44,6 +45,7 @@ export function ClientsPage() {
     ["researching", "qualified", "proposal"].includes(lead.status),
   );
   const clients = clientsQuery.data?.clients ?? [];
+  type ClientItem = (typeof clients)[number];
 
   return (
     <div className="space-y-4">
@@ -89,7 +91,7 @@ export function ClientsPage() {
                 Won
               </p>
               <p className="mt-3 text-3xl font-semibold">
-                {leads.filter((lead) => lead.status === "won").length}
+                {leads.filter((lead: LeadItem) => lead.status === "won").length}
               </p>
             </div>
           </div>
@@ -141,7 +143,7 @@ export function ClientsPage() {
                     Promote a lead to create the first client record.
                   </div>
                 ) : (
-                  clients.map((client) => (
+                  clients.map((client: ClientItem) => (
                     <div
                       key={client.id}
                       className="rounded-[1.75rem] border border-white/8 bg-white/4 p-5"
@@ -169,7 +171,7 @@ export function ClientsPage() {
                             Audit Notes
                           </p>
                           <div className="mt-3 space-y-2">
-                            {client.auditNotes.slice(-2).map((note) => (
+                            {client.auditNotes.slice(-2).map((note: string) => (
                               <p key={note} className="text-sm leading-6 text-cyan-50">
                                 {note}
                               </p>
@@ -211,7 +213,7 @@ export function ClientsPage() {
                   <Sparkles className="h-4 w-4 text-cyan-100/70" />
                 </div>
                 <div className="mt-3 space-y-2">
-                  {(lead.research?.opportunities ?? []).slice(0, 2).map((opportunity) => (
+                  {(lead.research?.opportunities ?? []).slice(0, 2).map((opportunity: { title: string; reason: string }) => (
                     <div key={opportunity.title} className="flex gap-3 text-sm leading-6 text-slate-300">
                       <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-cyan-100/70" />
                       <span>

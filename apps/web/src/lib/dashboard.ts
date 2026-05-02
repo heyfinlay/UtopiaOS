@@ -17,7 +17,7 @@ export const leadColumnLabels: Record<Lead["status"], string> = {
 };
 
 export function totalXp(stats: DashboardSummary["stats"]) {
-  return stats.reduce((sum, stat) => sum + stat.xp, 0);
+  return stats.reduce((sum: number, stat: DashboardSummary["stats"][number]) => sum + stat.xp, 0);
 }
 
 export function groupLeadsByStatus(leads: Lead[]) {

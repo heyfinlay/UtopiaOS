@@ -32,6 +32,10 @@ export function MissionsPage() {
     );
   }
 
+  type Mission = (typeof dashboard.missions)[number];
+  type ProgressStat = (typeof dashboard.stats)[number];
+  type ActivityItem = (typeof dashboard.recentActivity)[number];
+
   return (
     <div className="space-y-4">
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -63,7 +67,7 @@ export function MissionsPage() {
                 Completed
               </p>
               <p className="mt-3 text-3xl font-semibold">
-                {dashboard.missions.filter((mission) => mission.completed).length}
+                {dashboard.missions.filter((mission: Mission) => mission.completed).length}
               </p>
             </div>
             <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
@@ -121,7 +125,7 @@ export function MissionsPage() {
             <CardTitle className="mt-2 text-2xl">Operational objectives</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {dashboard.missions.map((mission, index) => (
+            {dashboard.missions.map((mission: Mission, index: number) => (
               <motion.div
                 key={mission.id}
                 initial={{ opacity: 0, y: 18 }}
@@ -162,7 +166,7 @@ export function MissionsPage() {
               <CardTitle className="mt-2 text-2xl">Current build</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {dashboard.stats.map((stat) => (
+              {dashboard.stats.map((stat: ProgressStat) => (
                 <div key={stat.key} className="rounded-[1.75rem] border border-white/8 bg-white/4 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -192,7 +196,7 @@ export function MissionsPage() {
             <CardContent>
               <ScrollArea className="h-[280px] pr-4">
                 <div className="space-y-3">
-                  {dashboard.recentActivity.map((activity) => (
+                  {dashboard.recentActivity.map((activity: ActivityItem) => (
                     <div key={activity.id} className="rounded-3xl border border-white/8 bg-white/4 p-4">
                       <p className="text-sm leading-6 text-slate-200">{activity.message}</p>
                       <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.26em] text-slate-500">

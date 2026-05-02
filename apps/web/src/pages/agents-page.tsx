@@ -51,6 +51,9 @@ export function AgentsPage() {
   const dashboard = dashboardQuery.data;
   const systemStatus = systemStatusQuery.data;
   const runtime = systemStatus?.runtime;
+  const approvals = approvalsQuery.data?.approvals ?? dashboard?.approvals ?? [];
+  const runs = dashboard?.agentRuns ?? [];
+
 
   return (
     <div className="space-y-4">
@@ -182,7 +185,7 @@ export function AgentsPage() {
             <CardTitle className="mt-2 text-2xl">Human decisions before risk</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {(approvalsQuery.data?.approvals ?? dashboard?.approvals ?? []).map((approval) => (
+            {approvals.map((approval: (typeof approvals)[number]) => (
               <div
                 key={approval.id}
                 className="rounded-[1.75rem] border border-white/8 bg-white/4 p-4"
@@ -230,7 +233,7 @@ export function AgentsPage() {
                 ) : null}
               </div>
             ))}
-            {(approvalsQuery.data?.approvals ?? dashboard?.approvals ?? []).length === 0 ? (
+            {approvals.length === 0 ? (
               <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-white/3 p-5 text-sm text-slate-400">
                 No approvals are waiting.
               </div>
@@ -277,7 +280,7 @@ export function AgentsPage() {
           <CardContent>
             <ScrollArea className="h-[420px] pr-4">
               <div className="space-y-3">
-                {(dashboard?.agentRuns ?? []).map((run) => (
+                {runs.map((run: (typeof runs)[number]) => (
                   <div key={run.id} className="rounded-[1.75rem] border border-white/8 bg-white/4 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>

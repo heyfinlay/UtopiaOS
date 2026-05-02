@@ -128,7 +128,7 @@ const parseImport = (text: string): ParsedImport => {
 
     if (!parsed.success) {
       const detail = parsed.error.issues
-        .map((issue) => `${issue.path.join(".") || "row"}: ${issue.message}`)
+        .map((issue: { path: Array<string | number | symbol>; message: string }) => `${issue.path.map(String).join(".") || "row"}: ${issue.message}`)
         .join("; ");
       errors.push(`Row ${rowIndex + 2}: ${detail}`);
       return;

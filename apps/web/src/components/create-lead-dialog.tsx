@@ -75,7 +75,7 @@ export function CreateLeadDialog({
     const parsed = createLeadInputSchema.safeParse(values);
 
     if (!parsed.success) {
-      parsed.error.issues.forEach((issue) => {
+      parsed.error.issues.forEach((issue: { path: Array<string | number | symbol>; message: string }) => {
         const field = issue.path[0];
 
         if (typeof field === "string") {
