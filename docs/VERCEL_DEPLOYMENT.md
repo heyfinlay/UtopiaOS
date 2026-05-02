@@ -3,7 +3,7 @@
 This repository is prepared for a single Vercel project:
 
 - static Vite app built into root-level `dist`
-- Hono API as a Vercel Node.js Function through [`api/[...path].ts`](/Users/finlaysturzaker/Documents/UtopiaOS/api/[...path].ts)
+- Hono API as a Vercel Node.js Function through [`api/[...path].js`](/Users/finlaysturzaker/Documents/UtopiaOS/api/[...path].js)
 - `/api/*` routed to the API function
 - `/health` routed to the API health endpoint
 - all other routes routed to the React app shell

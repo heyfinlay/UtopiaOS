@@ -1,53 +1,57 @@
 # Supabase-only migration audit (May 1, 2026)
 
 ## Scope
-This review maps where the application still depends on in-memory or fallback behavior and highlights mismatches that will block a clean Supabase-only deployment.
+This review originally mapped where the application still depended on in-memory or fallback behavior and highlighted mismatches that would block a clean Supabase-only deployment.
 
-## High-impact inconsistencies
+Current source of truth: [`docs/UTOPIA_OS_INVARIANTS.md`](/Users/finlaysturzaker/Documents/UtopiaOS/docs/UTOPIA_OS_INVARIANTS.md). If this audit conflicts with the invariants document, the invariants document wins.
 
-1. **API runtime still supports memory fallback and fallback owner routing.**
-   - `createApp` can run without auth in memory mode and uses `UTOPIA_OWNER_ID` fallback paths (`env-fallback`, `memory-demo`).
-   - Supabase-only migration requires deleting these branches and making authenticated owner resolution mandatory.
-   - Files: `apps/api/src/app.ts`.
+## Findings Status
 
-2. **Repository factory defaults to memory when Supabase env is incomplete.**
-   - Persistence config intentionally reports partial env and keeps memory mode enabled.
-   - This behavior directly conflicts with a strict Supabase-only deployment model.
+1. **Resolved: API runtime no longer uses public fallback owner routing.**
+   - `UTOPIA_OWNER_ID` is not a public-route fallback owner.
+   - Private API routes require authenticated owner resolution.
+   - Memory repositories remain available for tests and explicit in-memory test construction, not production-style fallback routing.
+   - Files: `apps/api/src/app.ts`, `apps/api/src/app.test.ts`.
+
+2. **Resolved: repository factory fails fast when Supabase env is incomplete.**
+   - The production factory requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+   - Incomplete Supabase configuration is reported as a startup/configuration failure, not a silent memory fallback.
    - Files: `packages/db/src/index.ts`, `packages/db/src/index.test.ts`.
 
-3. **Schema contract still advertises memory mode.**
+3. **Accepted test/development affordance: schema contract still advertises memory mode.**
    - `repositoryModeSchema` includes `"memory" | "supabase"`.
-   - System status response therefore encodes dual-mode behavior into API contracts.
+   - This remains useful for tests and explicit local memory repositories.
+   - Production-style operation must still use Supabase, per the invariants document.
    - Files: `packages/schemas/src/index.ts`.
 
-4. **UI copy and docs still position memory+mock as a normal first-class mode.**
-   - This increases operator confusion and masks deployment misconfiguration.
+4. **Partially resolved: UI and docs position Supabase as required.**
+   - Remaining memory wording should be treated as test/local implementation detail unless it is explicitly marked as production behavior.
    - Files include `apps/web/src/pages/agents-page.tsx`, `README.md`, `docs/USAGE.md`, `docs/TECHNICAL_ARCHITECTURE.md`.
 
-5. **Agent execution path still includes mock fallback after command failures.**
-   - Even when command mode is configured, execution degrades to mock results.
-   - If production reliability is a priority, this should become explicit erroring/alerting instead of silent fallback.
+5. **Resolved: configured OpenClaw failures do not silently fall back to mock.**
+   - Mock mode is allowed only when `OPENCLAW_COMMAND` is unset.
+   - Configured command failure creates visible failed run state.
    - Files: `packages/agent-actions/src/index.ts`, `docs/AGENT_INTEGRATION.md`.
 
-## Failing test discovered during full run
+## Test issue discovered during full run
 
-- `pnpm test` currently fails in `apps/api/src/app.test.ts` due to environment leakage (`SUPABASE_URL` present in runner env) making `supabaseUrlConfigured === true` when the test expects `false`.
+- `pnpm test` previously failed in `apps/api/src/app.test.ts` due to environment leakage (`SUPABASE_URL` present in runner env) making `supabaseUrlConfigured === true` when the test expected `false`.
 - This was fixed by explicitly stubbing empty Supabase env values in the affected test.
 
 ## Supabase-only migration backlog
 
 ### Phase 1: hard-disable fallback behavior
-- Remove memory-mode routing and `UTOPIA_OWNER_ID` fallback owner assignment in API request context.
-- Make startup fail fast if required Supabase env vars are missing.
-- Update health/system endpoints to reflect strict Supabase-only requirements.
+- Completed: remove public fallback owner routing.
+- Completed: make startup fail fast if required Supabase env vars are missing.
+- Completed: update health/system endpoints to reflect strict Supabase requirements.
 
 ### Phase 2: repository contract simplification
 - Remove memory repository mode from schemas and repository interfaces used by runtime API paths.
 - Keep in-memory test doubles only in test helpers (not production factory behavior).
 
 ### Phase 3: agent behavior cleanup
-- Replace `mock-fallback` on command failure with explicit failed run status + actionable error payload.
-- Keep mock mode only for local/dev test harnesses behind explicit `NODE_ENV=test` gates, if needed.
+- Completed: replace command-failure mock fallback with explicit failed run status + actionable error payload.
+- Keep explicit mock mode only for cases where `OPENCLAW_COMMAND` is not configured.
 
 ### Phase 4: UI and docs alignment
 - Remove operator-facing messaging that suggests fallback memory is expected in deployed environments.

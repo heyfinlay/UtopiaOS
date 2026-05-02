@@ -132,7 +132,7 @@ pnpm build
 
 ## Vercel Deployment
 
-The repository includes [`vercel.json`](/Users/finlaysturzaker/Documents/UtopiaOS/vercel.json) for a single-project Vercel deployment. The Vite app is served from `apps/web/dist`, and the Hono API runs as a Vercel Node.js Function via [`api/[...path].ts`](/Users/finlaysturzaker/Documents/UtopiaOS/api/[...path].ts).
+The repository includes [`vercel.json`](/Users/finlaysturzaker/Documents/UtopiaOS/vercel.json) for a single-project Vercel deployment. The Vite app is served from `apps/web/dist`, and the Hono API runs as a Vercel Node.js Function via [`api/[...path].js`](/Users/finlaysturzaker/Documents/UtopiaOS/api/[...path].js).
 
 See [`docs/VERCEL_DEPLOYMENT.md`](/Users/finlaysturzaker/Documents/UtopiaOS/docs/VERCEL_DEPLOYMENT.md) for deployment details.
 
