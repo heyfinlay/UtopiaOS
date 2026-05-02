@@ -354,7 +354,7 @@ describe("createApp", () => {
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.lead.company).toBe("Cinder Lane");
-    expect(ownerRepository.listLeads()).resolves.toHaveLength(1);
+    await expect(ownerRepository.listLeads()).resolves.toHaveLength(1);
   });
 
   it("returns a valid empty dashboard state", async () => {
