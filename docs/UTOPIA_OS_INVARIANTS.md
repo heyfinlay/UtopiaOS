@@ -283,6 +283,7 @@ Rules:
 - The Vercel catch-all function uses the Web `Request` / `Response` handler shape.
 - The Vercel catch-all function dynamically imports the built API app.
 - The catch-all function must never `require()` `apps/api/src/app.js`.
+- Internal `@utopia/*` package runtime exports must point at built `dist` files, not `src/*.ts`.
 - Build output must exist before deployment.
 - Smoke tests must prove the entrypoint can boot without `ERR_REQUIRE_ESM`.
 

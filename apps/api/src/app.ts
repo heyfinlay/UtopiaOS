@@ -1,9 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
 import {
-  executeOpenClawResearchJob,
-  getAgentConnectionStatus,
-} from "@utopia/agent-actions";
-import {
   approvalResponseSchema,
   approvalsResponseSchema,
   clientsResponseSchema,
@@ -102,6 +98,18 @@ type AuthenticatedUser = {
   id: string;
 };
 
+type AgentConnectionStatus = {
+  configured: boolean;
+  commandPreview: string;
+  mode: "mock" | "openclaw-cli" | "gateway";
+  lastRunStatus?: "idle" | "running" | "completed" | "failed";
+  lastRunError?: string;
+  timeoutMs?: number;
+  expectedOutputFormat: "research_lead_json";
+  schemaValidationStatus?: "unknown" | "passed" | "failed";
+  securityNote?: string;
+};
+
 type CreateAppOptions = {
   persistence?: PersistenceConfigState;
   verifyAccessToken?: (accessToken: string) => Promise<AuthenticatedUser | null>;
@@ -124,6 +132,55 @@ const runtimeEnv =
     ? (process.env as Record<string, string | undefined>)
     : {};
 const createRequestId = () => globalThis.crypto.randomUUID();
+const defaultOpenClawTimeoutMs = 45_000;
+
+const getCommandPreview = (command?: string) => {
+  if (!command?.trim()) {
+    return "OPENCLAW_COMMAND not configured";
+  }
+
+  const [binary] = command.trim().split(/\s+/);
+
+  return binary ? `${binary} ...` : "OPENCLAW_COMMAND configured";
+};
+
+const getFallbackAgentConnectionStatus = (): AgentConnectionStatus => {
+  const command = runtimeEnv.OPENCLAW_COMMAND?.trim() ?? "";
+  const timeoutMs = Number(runtimeEnv.OPENCLAW_TIMEOUT_MS);
+
+  return {
+    configured: Boolean(command),
+    commandPreview: getCommandPreview(command),
+    mode: command ? "openclaw-cli" : "mock",
+    lastRunStatus: "idle",
+    timeoutMs:
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? timeoutMs
+        : defaultOpenClawTimeoutMs,
+    expectedOutputFormat: "research_lead_json",
+    schemaValidationStatus: "unknown",
+    securityNote:
+      "Agent runtime is lazy-loaded so manual CRM flows can boot without OpenClaw.",
+  };
+};
+
+const getAgentConnectionStatusSafely = async (): Promise<AgentConnectionStatus> => {
+  try {
+    const { getAgentConnectionStatus } = await import("@utopia/agent-actions");
+
+    return getAgentConnectionStatus();
+  } catch (error) {
+    console.error("Agent runtime status failed to load", { error });
+
+    return {
+      ...getFallbackAgentConnectionStatus(),
+      lastRunStatus: "failed",
+      lastRunError: "Agent runtime module failed to load.",
+      securityNote:
+        "Manual CRM flows remain available. Research requires the agent runtime bundle to load.",
+    };
+  }
+};
 
 const verifySupabaseUser = async (
   supabaseUrl: string,
@@ -160,7 +217,7 @@ export const createApp = (
   options: CreateAppOptions = {},
 ) => {
   const app = new Hono<AppContext>();
-  const agentStatus = getAgentConnectionStatus();
+  const fallbackAgentStatus = getFallbackAgentConnectionStatus();
   const persistence = options.persistence ?? getPersistenceConfigState();
   const isDevelopment = runtimeEnv.NODE_ENV !== "production";
   const supabaseUrl = runtimeEnv.SUPABASE_URL?.trim() ?? "";
@@ -296,7 +353,7 @@ export const createApp = (
       ok: true,
       service: "utopia-command-api",
       repositoryMode: context.get("repository").mode,
-      agentMode: agentStatus.mode,
+      agentMode: fallbackAgentStatus.mode,
     }),
   );
 
@@ -305,7 +362,7 @@ export const createApp = (
       ok: true,
       service: "utopia-command-api",
       repositoryMode: context.get("repository").mode,
-      agentMode: agentStatus.mode,
+      agentMode: fallbackAgentStatus.mode,
       supabaseConfigured: persistence.supabaseConfigured,
       ownerConfigured: persistence.ownerConfigured,
     }),
@@ -348,8 +405,10 @@ export const createApp = (
     ),
   );
 
-  app.get("/api/system/status", async (context) =>
-    context.json(
+  app.get("/api/system/status", async (context) => {
+    const agentStatus = await getAgentConnectionStatusSafely();
+
+    return context.json(
       systemStatusSchema.parse({
         repositoryMode: context.get("repository").mode,
         supabaseUrlConfigured: persistence.supabaseUrlConfigured,
@@ -365,8 +424,8 @@ export const createApp = (
         runtime: agentStatus,
         schemaCheck: (await context.get("repository").getSchemaCheck()) ?? undefined,
       }),
-    ),
-  );
+    );
+  });
 
   app.get(
     "/api/leads/:leadId",
@@ -536,6 +595,7 @@ export const createApp = (
         return context.json({ error: "Lead not found." }, 404);
       }
 
+      const agentStatus = await getAgentConnectionStatusSafely();
       const originalStatus = lead.status;
       const started = await scopedRepository.startLeadResearchRun({
         leadId,
@@ -556,6 +616,7 @@ export const createApp = (
         return context.json({ error: "Lead not found." }, 404);
       }
 
+      const { executeOpenClawResearchJob } = await import("@utopia/agent-actions");
       const execution = await executeOpenClawResearchJob({
         lead,
         runId: started.agentRun.id,

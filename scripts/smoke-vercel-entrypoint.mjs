@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 const supabaseUrl = process.env.SUPABASE_URL?.trim() || "https://example.supabase.co";
 const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "service-role-key";
@@ -5,6 +7,12 @@ const serviceRoleKey =
 process.env.SUPABASE_URL = supabaseUrl;
 process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;
 process.env.NODE_ENV ??= "test";
+
+const apiAppBundle = readFileSync(new URL("../apps/api/dist/app.js", import.meta.url), "utf8");
+
+if (/from\s+["']@utopia\//.test(apiAppBundle) || /import\(["']@utopia\//.test(apiAppBundle)) {
+  throw new Error("apps/api/dist/app.js still imports internal @utopia packages at runtime.");
+}
 
 const originalFetch = globalThis.fetch;
 

@@ -56,6 +56,8 @@ The Vercel catch-all function is [`api/[...path].js`](/Users/finlaysturzaker/Doc
 
 The API application package, [`apps/api`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api), is also ESM and builds [`apps/api/dist/app.js`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api/dist/app.js) with `tsup --format esm`. The Vercel function dynamically imports that built module and caches the created Hono app promise across invocations.
 
+Internal workspace packages must expose built `dist` files at runtime. Do not point `@utopia/*` package exports at `src/*.ts`; Vercel's serverless trace may include the built API app without copying package TypeScript source files, which causes `ERR_MODULE_NOT_FOUND` during function boot.
+
 Do not statically import or CommonJS `require()` [`apps/api/src/app.js`](/Users/finlaysturzaker/Documents/UtopiaOS/apps/api/src/app.ts) from a Vercel function. Vercel may emit a CommonJS function wrapper for TypeScript entrypoints, and requiring the API package's ESM module causes `ERR_REQUIRE_ESM` before any route handler executes.
 
 ## Verification
