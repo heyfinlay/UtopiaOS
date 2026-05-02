@@ -113,10 +113,10 @@ Lead create:
 1. Validate input against the shared schema.
 2. Verify auth and resolve owner.
 3. Persist the lead.
-4. Create activity.
-5. Award XP.
-6. Return the canonical lead creation response.
-7. Refetch leads and dashboard.
+4. Return the canonical lead creation response.
+5. Refetch leads and dashboard.
+
+Lead creation is intentionally a minimal manual CRM write. It must not depend on activity or XP side effects, because a secondary activity/progression failure must not make a persisted lead look like a failed creation. Activity and XP can be reintroduced only when they are transactional or non-blocking and cannot block the lead response.
 
 Lead import:
 

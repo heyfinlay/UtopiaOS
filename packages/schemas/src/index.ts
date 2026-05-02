@@ -431,8 +431,6 @@ export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
 
 export const createLeadResponseSchema = z.object({
   lead: leadSchema,
-  activity: activitySchema,
-  stats: z.array(progressStatSchema),
 });
 
 export const importLeadsResponseSchema = z.object({

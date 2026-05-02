@@ -354,10 +354,7 @@ describe("createApp", () => {
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.lead.company).toBe("Cinder Lane");
-    expect(payload.activity.kind).toBe("lead.created");
-    expect(
-      payload.stats.find((stat: { key: string }) => stat.key === "systems")?.xp,
-    ).toBeGreaterThan(0);
+    expect(ownerRepository.listLeads()).resolves.toHaveLength(1);
   });
 
   it("returns a valid empty dashboard state", async () => {

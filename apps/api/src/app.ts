@@ -447,24 +447,11 @@ export const createApp = (
     zValidator("json", createLeadInputSchema),
     async (context) => {
       const scopedRepository = getRepository(context);
-      const { lead, stats, activity } = await scopedRepository.createLeadWithActivity({
-        lead: context.req.valid("json"),
-        xpAwards: xpForLeadCreation,
-        activity: {
-          entityType: "lead",
-          entityId: "",
-          kind: "lead.created",
-          actor: "human",
-          message: "Lead created.",
-          xpAwards: xpForLeadCreation,
-        },
-      });
+      const lead = await scopedRepository.createLead(context.req.valid("json"));
 
       return context.json(
         createLeadResponseSchema.parse({
           lead,
-          activity,
-          stats,
         }),
         201,
       );
