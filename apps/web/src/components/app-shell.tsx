@@ -18,8 +18,10 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { CreateLeadDialog } from "@/components/create-lead-dialog";
 import { ImportLeadsDialog } from "@/components/import-leads-dialog";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { dashboardApi } from "@/domains/dashboard/api";
+import { agentsApi } from "@/domains/agents/api";
 import { formatCompactCurrency } from "@/lib/dashboard";
+import { queryKeys } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
 import { useUiStore } from "@/store/ui-store";
@@ -43,14 +45,14 @@ export function AppShell({ children }: PropsWithChildren) {
   const { user, authConfigured, signOut } = useAuth();
 
   const dashboardQuery = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: api.getDashboard,
+    queryKey: queryKeys.dashboard(),
+    queryFn: dashboardApi.get,
     refetchInterval: 20_000,
   });
 
   const systemStatusQuery = useQuery({
-    queryKey: ["system-status"],
-    queryFn: api.getSystemStatus,
+    queryKey: queryKeys.systemStatus(),
+    queryFn: agentsApi.getStatus,
     refetchInterval: 20_000,
   });
 

@@ -51,6 +51,15 @@ describe("systemStatusSchema", () => {
       agentCommandConfigured: false,
       agentCommandPreview: "OPENCLAW_COMMAND not configured",
       agentMode: "mock",
+      runtime: {
+        configured: false,
+        mode: "mock",
+        commandPreview: "OPENCLAW_COMMAND not configured",
+        lastRunStatus: "idle",
+        timeoutMs: 45_000,
+        expectedOutputFormat: "research_lead_json",
+        schemaValidationStatus: "unknown",
+      },
     });
 
     expect(status.repositoryMode).toBe("supabase");

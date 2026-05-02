@@ -16,13 +16,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api } from "@/lib/api";
+import { dashboardApi } from "@/domains/dashboard/api";
 import {
   formatCompactCurrency,
   formatCurrency,
   formatDate,
   totalXp,
 } from "@/lib/dashboard";
+import { queryKeys } from "@/lib/query/keys";
 
 const actionToneClasses = {
   revenue: "border-emerald-300/15 bg-emerald-300/10 text-emerald-50",
@@ -33,8 +34,8 @@ const actionToneClasses = {
 
 export function CommandCenterPage() {
   const dashboardQuery = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: api.getDashboard,
+    queryKey: queryKeys.dashboard(),
+    queryFn: dashboardApi.get,
     refetchInterval: 20_000,
   });
 

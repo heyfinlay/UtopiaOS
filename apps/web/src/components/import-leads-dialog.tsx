@@ -11,7 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { api } from "@/lib/api";
+import { leadsApi } from "@/domains/leads/api";
+import { refetchAfterLeadCreate } from "@/lib/query/refetchers";
 import { createLeadInputSchema, type CreateLeadInput } from "@utopia/schemas";
 
 type ImportLeadsDialogProps = {
@@ -156,12 +157,9 @@ export function ImportLeadsDialog({
   );
 
   const importMutation = useMutation({
-    mutationFn: api.importLeads,
+    mutationFn: leadsApi.import,
     onSuccess: async ({ leads }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["leads"] }),
-      ]);
+      await refetchAfterLeadCreate(queryClient);
       toast.success(`${leads.length} lead${leads.length === 1 ? "" : "s"} imported.`);
       setFileName(null);
       setParsedImport({ leads: [], errors: [] });

@@ -56,6 +56,17 @@ export const agentRunStatusSchema = z.enum([
 export const agentRunModeSchema = z.enum([
   "mock",
   "openclaw-cli",
+  "gateway",
+]);
+
+export const agentRunFailureCodeSchema = z.enum([
+  "command_not_configured",
+  "command_spawn_failed",
+  "command_exit_non_zero",
+  "timeout",
+  "invalid_json",
+  "schema_validation_failed",
+  "unknown",
 ]);
 
 export const repositoryModeSchema = z.literal("supabase");
@@ -430,6 +441,13 @@ export const importLeadsResponseSchema = z.object({
   stats: z.array(progressStatSchema),
 });
 
+export const importLeadsFailureSchema = z.object({
+  rowNumber: z.number().int().positive(),
+  company: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1).optional(),
+  message: z.string().trim().min(2),
+});
+
 export const updateLeadResponseSchema = z.object({
   lead: leadSchema,
   activity: activitySchema,
@@ -441,6 +459,48 @@ export const researchLeadResponseSchema = z.object({
   agentRun: agentRunSchema,
   stats: z.array(progressStatSchema),
 });
+
+export const agentRuntimeDiagnosticsSchema = z.object({
+  configured: z.boolean(),
+  mode: agentRunModeSchema,
+  commandPreview: z.string().optional(),
+  lastRunStatus: z.enum(["idle", "running", "completed", "failed"]).optional(),
+  lastRunError: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  expectedOutputFormat: z.literal("research_lead_json"),
+  schemaValidationStatus: z.enum(["unknown", "passed", "failed"]).optional(),
+  securityNote: z.string().optional(),
+});
+
+export type AgentRuntimeDiagnostics = z.infer<typeof agentRuntimeDiagnosticsSchema>;
+
+export const openClawResearchOutputSchema = researchLeadResultSchema;
+
+export const openClawResearchJobSuccessSchema = z.object({
+  ok: z.literal(true),
+  mode: agentRunModeSchema,
+  prompt: z.string().trim().min(8),
+  stdout: z.string(),
+  stderr: z.string(),
+  result: openClawResearchOutputSchema,
+});
+
+export const openClawResearchJobFailureSchema = z.object({
+  ok: z.literal(false),
+  mode: agentRunModeSchema,
+  prompt: z.string().trim().min(8),
+  stdout: z.string(),
+  stderr: z.string(),
+  error: z.string().trim().min(2),
+  failureCode: agentRunFailureCodeSchema,
+});
+
+export const openClawResearchJobResultSchema = z.union([
+  openClawResearchJobSuccessSchema,
+  openClawResearchJobFailureSchema,
+]);
+
+export type OpenClawResearchJobResult = z.infer<typeof openClawResearchJobResultSchema>;
 
 export const approvalsResponseSchema = z.object({
   approvals: z.array(approvalSchema),
@@ -477,6 +537,7 @@ export const systemSchemaCheckSchema = z.object({
 
 export const ownerSourceSchema = z.enum([
   "authenticated-user",
+  "memory-demo",
   "none",
 ]);
 
@@ -491,12 +552,14 @@ export const systemStatusSchema = z.object({
   ownerSource: ownerSourceSchema,
   agentCommandConfigured: z.boolean(),
   agentCommandPreview: z.string(),
-  agentMode: z.enum(["mock", "openclaw-cli"]),
+  agentMode: agentRunModeSchema,
+  runtime: agentRuntimeDiagnosticsSchema,
   schemaCheck: systemSchemaCheckSchema.optional(),
 });
 
 export type CreateLeadResponse = z.infer<typeof createLeadResponseSchema>;
 export type ImportLeadsResponse = z.infer<typeof importLeadsResponseSchema>;
+export type ImportLeadsFailure = z.infer<typeof importLeadsFailureSchema>;
 export type UpdateLeadResponse = z.infer<typeof updateLeadResponseSchema>;
 export type ResearchLeadResponse = z.infer<typeof researchLeadResponseSchema>;
 export type ApprovalsResponse = z.infer<typeof approvalsResponseSchema>;

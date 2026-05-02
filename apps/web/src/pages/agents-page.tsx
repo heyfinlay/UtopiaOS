@@ -7,26 +7,30 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api } from "@/lib/api";
+import { approvalsApi } from "@/domains/approvals/api";
+import { agentsApi } from "@/domains/agents/api";
+import { dashboardApi } from "@/domains/dashboard/api";
 import { formatDate } from "@/lib/dashboard";
+import { queryKeys } from "@/lib/query/keys";
+import { refetchAfterApprovalChange } from "@/lib/query/refetchers";
 
 export function AgentsPage() {
   const queryClient = useQueryClient();
   const dashboardQuery = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: api.getDashboard,
+    queryKey: queryKeys.dashboard(),
+    queryFn: dashboardApi.get,
     refetchInterval: 20_000,
   });
 
   const systemStatusQuery = useQuery({
-    queryKey: ["system-status"],
-    queryFn: api.getSystemStatus,
+    queryKey: queryKeys.systemStatus(),
+    queryFn: agentsApi.getStatus,
     refetchInterval: 20_000,
   });
 
   const approvalsQuery = useQuery({
-    queryKey: ["approvals"],
-    queryFn: api.getApprovals,
+    queryKey: queryKeys.approvals.all(),
+    queryFn: approvalsApi.list,
     refetchInterval: 20_000,
   });
 
@@ -37,18 +41,16 @@ export function AgentsPage() {
     }: {
       approvalId: string;
       decision: "approved" | "rejected";
-    }) => api.resolveApproval(approvalId, decision),
+    }) => approvalsApi.resolve(approvalId, decision),
     onSuccess: async ({ approval }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["approvals"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-      ]);
+      await refetchAfterApprovalChange(queryClient);
       toast.success(`${approval.title} ${approval.status}.`);
     },
   });
 
   const dashboard = dashboardQuery.data;
   const systemStatus = systemStatusQuery.data;
+  const runtime = systemStatus?.runtime;
 
   return (
     <div className="space-y-4">
@@ -82,7 +84,7 @@ export function AgentsPage() {
                 Agent Mode
               </p>
               <p className="mt-3 text-2xl font-semibold">
-                {systemStatus?.agentMode ?? "loading"}
+                {runtime?.mode ?? systemStatus?.agentMode ?? "loading"}
               </p>
             </div>
             <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
@@ -123,6 +125,24 @@ export function AgentsPage() {
             </div>
             <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
               <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-slate-500">
+                Last Run
+              </p>
+              <p className="mt-3 text-sm text-slate-200">
+                {runtime?.lastRunStatus
+                  ? `${runtime.lastRunStatus}${runtime.lastRunError ? `: ${runtime.lastRunError}` : ""}`
+                  : "No run observed yet."}
+              </p>
+            </div>
+            <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
+              <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-slate-500">
+                Output Contract
+              </p>
+              <p className="mt-3 text-sm text-slate-200">
+                {runtime?.expectedOutputFormat ?? "research_lead_json"} • schema {runtime?.schemaValidationStatus ?? "unknown"}
+              </p>
+            </div>
+            <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
+              <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-slate-500">
                 Supabase
               </p>
               <p className="mt-3 text-sm text-slate-200">
@@ -139,6 +159,14 @@ export function AgentsPage() {
                 {systemStatus?.currentRequestAuthenticated
                   ? "The current request is scoped to the authenticated Supabase user."
                   : "Sign in with a Supabase user to scope reads and writes."}
+              </p>
+            </div>
+            <div className="rounded-3xl border border-white/8 bg-white/4 p-4">
+              <p className="font-mono text-[0.7rem] uppercase tracking-[0.28em] text-slate-500">
+                Security
+              </p>
+              <p className="mt-3 text-sm text-slate-200">
+                {runtime?.securityNote ?? "Runtime security guidance unavailable."}
               </p>
             </div>
           </div>
@@ -265,6 +293,11 @@ export function AgentsPage() {
                     <p className="mt-4 rounded-2xl border border-white/8 bg-slate-950/80 p-3 font-mono text-xs leading-6 text-slate-300">
                       {run.prompt}
                     </p>
+                    {run.error ? (
+                      <p className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-300/8 p-3 text-sm leading-6 text-rose-100">
+                        {run.error}
+                      </p>
+                    ) : null}
                   </div>
                 ))}
               </div>

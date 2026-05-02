@@ -7,28 +7,31 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api } from "@/lib/api";
+import { clientsApi } from "@/domains/clients/api";
+import { leadsApi } from "@/domains/leads/api";
 import { formatDate } from "@/lib/dashboard";
+import { queryKeys } from "@/lib/query/keys";
+import { refetchAfterClientUpdate } from "@/lib/query/refetchers";
 
 export function ClientsPage() {
   const queryClient = useQueryClient();
   const leadsQuery = useQuery({
-    queryKey: ["leads"],
-    queryFn: api.getLeads,
+    queryKey: queryKeys.leads.all(),
+    queryFn: leadsApi.list,
     refetchInterval: 20_000,
   });
   const clientsQuery = useQuery({
-    queryKey: ["clients"],
-    queryFn: api.getClients,
+    queryKey: queryKeys.clients.all(),
+    queryFn: clientsApi.list,
     refetchInterval: 20_000,
   });
   const updateClientMutation = useMutation({
     mutationFn: (clientId: string) =>
-      api.updateClient(clientId, {
+      clientsApi.update(clientId, {
         roadmapItem: "Review the next delivery checkpoint and update client status.",
       }),
     onSuccess: async ({ client }) => {
-      await queryClient.invalidateQueries({ queryKey: ["clients"] });
+      await refetchAfterClientUpdate(queryClient);
       toast.success(`${client.company} roadmap updated.`);
     },
   });

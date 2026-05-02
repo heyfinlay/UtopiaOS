@@ -6,13 +6,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api } from "@/lib/api";
+import { dashboardApi } from "@/domains/dashboard/api";
 import { formatDate, totalXp } from "@/lib/dashboard";
+import { queryKeys } from "@/lib/query/keys";
 
 export function MissionsPage() {
   const dashboardQuery = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: api.getDashboard,
+    queryKey: queryKeys.dashboard(),
+    queryFn: dashboardApi.get,
     refetchInterval: 20_000,
   });
 

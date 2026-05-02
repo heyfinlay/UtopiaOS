@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import {
+  executeOpenClawResearchJob,
   getAgentConnectionStatus,
-  runResearchLeadAction,
 } from "@utopia/agent-actions";
 import {
   approvalResponseSchema,
@@ -362,6 +362,7 @@ export const createApp = (
         agentCommandConfigured: agentStatus.configured,
         agentCommandPreview: agentStatus.commandPreview,
         agentMode: agentStatus.mode,
+        runtime: agentStatus,
         schemaCheck: (await context.get("repository").getSchemaCheck()) ?? undefined,
       }),
     ),
@@ -387,15 +388,17 @@ export const createApp = (
     zValidator("json", createLeadInputSchema),
     async (context) => {
       const scopedRepository = getRepository(context);
-      const lead = await scopedRepository.createLead(context.req.valid("json"));
-      const stats = await scopedRepository.awardXp(xpForLeadCreation);
-      const activity = await scopedRepository.createActivity({
-        entityType: "lead",
-        entityId: lead.id,
-        kind: "lead.created",
-        actor: "human",
-        message: `Lead created for ${lead.company}.`,
+      const { lead, stats, activity } = await scopedRepository.createLeadWithActivity({
+        lead: context.req.valid("json"),
         xpAwards: xpForLeadCreation,
+        activity: {
+          entityType: "lead",
+          entityId: "",
+          kind: "lead.created",
+          actor: "human",
+          message: "Lead created.",
+          xpAwards: xpForLeadCreation,
+        },
       });
 
       return context.json(
@@ -417,8 +420,22 @@ export const createApp = (
       const scopedRepository = getRepository(context);
       const leads = [];
 
-      for (const input of inputLeads) {
-        leads.push(await scopedRepository.createLead(input));
+      for (const [index, input] of inputLeads.entries()) {
+        try {
+          leads.push(await scopedRepository.createLead(input));
+        } catch (error) {
+          return context.json(
+            {
+              error: "Lead import failed.",
+              message: `Lead import failed on row ${index + 1} after ${leads.length} persisted lead${leads.length === 1 ? "" : "s"}. ${
+                error instanceof Error ? error.message : "Unknown persistence failure."
+              }`,
+              importedCount: leads.length,
+              requestId: context.get("requestId"),
+            },
+            500,
+          );
+        }
       }
 
       const xpAwards = scaleXpAwards(xpForLeadCreation, leads.length);
@@ -450,25 +467,26 @@ export const createApp = (
     async (context) => {
       const { leadId } = context.req.valid("param");
       const scopedRepository = getRepository(context);
-      const lead = await scopedRepository.updateLead(leadId, context.req.valid("json"));
+      const result = await scopedRepository.updateLeadWithActivity({
+        leadId,
+        patch: context.req.valid("json"),
+        activity: {
+          entityType: "lead",
+          kind: "lead.updated",
+          actor: "human",
+          message: "Lead updated.",
+          xpAwards: zeroXp,
+        },
+      });
 
-      if (!lead) {
+      if (!result) {
         return context.json({ error: "Lead not found." }, 404);
       }
 
-      const activity = await scopedRepository.createActivity({
-        entityType: "lead",
-        entityId: lead.id,
-        kind: "lead.updated",
-        actor: "human",
-        message: `Lead updated for ${lead.company}.`,
-        xpAwards: zeroXp,
-      });
-
       return context.json(
         updateLeadResponseSchema.parse({
-          lead,
-          activity,
+          lead: result.lead,
+          activity: result.activity,
         }),
       );
     },
@@ -481,28 +499,25 @@ export const createApp = (
     async (context) => {
       const { leadId } = context.req.valid("param");
       const scopedRepository = getRepository(context);
-      const promoted = await scopedRepository.promoteLeadToClient(
+      const promoted = await scopedRepository.promoteLeadWithActivity({
         leadId,
-        context.req.valid("json"),
-      );
+        promotion: context.req.valid("json"),
+        activity: {
+          entityType: "lead",
+          kind: "client.promoted",
+          actor: "human",
+          message: "Lead promoted into client delivery.",
+          xpAwards: zeroXp,
+        },
+      });
 
       if (!promoted) {
         return context.json({ error: "Lead not found." }, 404);
       }
 
-      const activity = await scopedRepository.createActivity({
-        entityType: "lead",
-        entityId: promoted.lead.id,
-        kind: "client.promoted",
-        actor: "human",
-        message: `${promoted.client.company} promoted into client delivery.`,
-        xpAwards: zeroXp,
-      });
-
       return context.json(
         clientResponseSchema.parse({
           ...promoted,
-          activity,
         }),
         201,
       );
@@ -521,9 +536,10 @@ export const createApp = (
         return context.json({ error: "Lead not found." }, 404);
       }
 
-      await scopedRepository.updateLeadStatus(leadId, "researching");
-
-      const queuedRun = await scopedRepository.createAgentRun({
+      const originalStatus = lead.status;
+      const started = await scopedRepository.startLeadResearchRun({
+        leadId,
+        run: {
         action: "research_lead",
         mode: agentStatus.mode,
         status: "running",
@@ -533,78 +549,97 @@ export const createApp = (
         requiresApproval: false,
         prompt:
           "Research the lead, extract likely buying signals, and suggest the next low-risk human action.",
+        },
       });
 
-      try {
-        const execution = await runResearchLeadAction(lead);
-        const updatedLead = await scopedRepository.applyResearchToLead(
+      if (!started) {
+        return context.json({ error: "Lead not found." }, 404);
+      }
+
+      const execution = await executeOpenClawResearchJob({
+        lead,
+        runId: started.agentRun.id,
+      });
+
+      if (!execution.ok) {
+        const failed = await scopedRepository.failLeadResearch({
           leadId,
-          execution.result,
-        );
-
-        if (!updatedLead) {
-          return context.json({ error: "Lead not found after research." }, 404);
-        }
-
-        const completedRun = await scopedRepository.updateAgentRun(queuedRun.id, {
-          mode: execution.mode,
-          status: "completed",
-          summary: `${updatedLead.company} researched with ${execution.result.opportunities.length} mapped opportunity angles.`,
-          prompt: execution.prompt,
-          completedAt: new Date().toISOString(),
-        });
-
-        const stats = await scopedRepository.awardXp(xpForResearch);
-        const activity = await scopedRepository.createActivity({
-          entityType: "lead",
-          entityId: leadId,
-          kind: "lead.researched",
-          actor: "agent",
-          message: `Research completed for ${updatedLead.company}.`,
-          xpAwards: xpForResearch,
-        });
-
-        await scopedRepository.createActivity({
-          entityType: "agent_run",
-          entityId: queuedRun.id,
-          kind: "agent.run.completed",
-          actor: "system",
-          message: `${execution.mode === "openclaw-cli" ? "OpenClaw" : "Mock research"} run completed for ${updatedLead.company}.`,
-          xpAwards: {
-            sales: 0,
-            delivery: 0,
-            content: 0,
-            systems: 0,
-            relationships: 0,
-            revenue: 0,
-            discipline: 0,
+          runId: started.agentRun.id,
+          restoreStatus: originalStatus,
+          runUpdates: {
+            mode: execution.mode,
+            status: "failed",
+            completedAt: new Date().toISOString(),
+            error: execution.error,
+            summary: `Research failed for ${lead.company}.`,
+            prompt: execution.prompt,
           },
-        });
-
-        return context.json(
-          researchLeadResponseSchema.parse({
-            lead: updatedLead,
-            activity,
-            agentRun: completedRun ?? queuedRun,
-            stats,
-          }),
-        );
-      } catch (error) {
-        const failedRun = await scopedRepository.updateAgentRun(queuedRun.id, {
-          status: "failed",
-          completedAt: new Date().toISOString(),
-          error: error instanceof Error ? error.message : "Unknown research error",
-          summary: `Research failed for ${lead.company}.`,
+          activity: {
+            entityType: "agent_run",
+            entityId: started.agentRun.id,
+            kind: "agent.run.failed",
+            actor: "system",
+            message: `Research failed for ${lead.company}: ${execution.error}`,
+            xpAwards: zeroXp,
+          },
         });
 
         return context.json(
           {
             error: "Lead research failed.",
-            agentRun: failedRun ?? queuedRun,
+            message: execution.error,
+            agentRun: failed.agentRun ?? started.agentRun,
+            lead: failed.lead,
+            requestId: context.get("requestId"),
           },
           500,
         );
       }
+
+      const completed = await scopedRepository.completeLeadResearch({
+        leadId,
+        runId: started.agentRun.id,
+        research: execution.result,
+        leadStatusOnComplete: originalStatus === "new" ? "qualified" : originalStatus,
+        runUpdates: {
+          mode: execution.mode,
+          status: "completed",
+          summary: `${lead.company} researched with ${execution.result.opportunities.length} mapped opportunity angles.`,
+          prompt: execution.prompt,
+          completedAt: new Date().toISOString(),
+        },
+        activity: {
+          entityType: "lead",
+          entityId: "",
+          kind: "lead.researched",
+          actor: "agent",
+          message: `Research completed for ${lead.company}.`,
+          xpAwards: xpForResearch,
+        },
+        xpAwards: xpForResearch,
+      });
+
+      if (!completed) {
+        return context.json({ error: "Lead not found after research." }, 404);
+      }
+
+      await scopedRepository.createActivity({
+        entityType: "agent_run",
+        entityId: started.agentRun.id,
+        kind: "agent.run.completed",
+        actor: "system",
+        message: `${execution.mode === "openclaw-cli" ? "OpenClaw" : "Mock research"} run completed for ${completed.lead.company}.`,
+        xpAwards: zeroXp,
+      });
+
+      return context.json(
+        researchLeadResponseSchema.parse({
+          lead: completed.lead,
+          activity: completed.activity,
+          agentRun: completed.agentRun,
+          stats: completed.stats,
+        }),
+      );
     },
   );
 

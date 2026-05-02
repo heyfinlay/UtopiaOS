@@ -3,9 +3,9 @@ import type {
   ApprovalsResponse,
   ClientResponse,
   ClientsResponse,
-  CreateTemplateInput,
   CreateLeadInput,
   CreateLeadResponse,
+  CreateTemplateInput,
   DashboardSummary,
   ImportLeadsInput,
   ImportLeadsResponse,
@@ -13,11 +13,12 @@ import type {
   ProgressStat,
   RequestApprovalInput,
   ResearchLeadResponse,
+  SystemStatus,
   TemplateResponse,
   TemplatesResponse,
-  SystemStatus,
   UpdateClientInput,
   UpdateLeadInput,
+  UpdateLeadResponse,
   UpdateTemplateInput,
 } from "@utopia/schemas";
 
@@ -37,11 +38,26 @@ let accessTokenProvider: AccessTokenProvider | null = null;
 
 export class ApiError extends Error {
   status: number;
+  requestId?: string;
+  payload?: unknown;
+  method: string;
+  path: string;
 
-  constructor(message: string, status: number) {
-    super(message);
+  constructor(options: {
+    message: string;
+    status: number;
+    method: string;
+    path: string;
+    requestId?: string;
+    payload?: unknown;
+  }) {
+    super(options.message);
     this.name = "ApiError";
-    this.status = status;
+    this.status = options.status;
+    this.method = options.method;
+    this.path = options.path;
+    this.requestId = options.requestId;
+    this.payload = options.payload;
   }
 }
 
@@ -49,43 +65,109 @@ export const setAccessTokenProvider = (provider: AccessTokenProvider | null) => 
   accessTokenProvider = provider;
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+const toSafeObject = (value: unknown) =>
+  value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+
+const toErrorMessage = (status: number, method: string, path: string, payload: unknown) => {
+  const objectPayload = toSafeObject(payload);
+  const payloadMessage =
+    typeof objectPayload?.message === "string"
+      ? objectPayload.message
+      : typeof objectPayload?.error === "string"
+        ? objectPayload.error
+        : null;
+
+  if (payloadMessage) {
+    return payloadMessage;
+  }
+
+  switch (status) {
+    case 401:
+      return "Authentication failed. Sign in again to continue.";
+    case 404:
+      return `${method} ${path} returned 404. The API route or record was not found.`;
+    case 405:
+      return `${method} ${path} returned 405. The API function was not reached; check deployment routing and allowed methods.`;
+    case 500:
+      return "The API failed while handling this request. Check the server logs and request ID.";
+    default:
+      return `Request failed with status ${status}.`;
+  }
+};
+
+const parseResponseBody = async (response: Response) => {
+  const rawText = await response.text();
+
+  if (!rawText.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawText) as unknown;
+  } catch {
+    return {
+      raw: rawText,
+    };
+  }
+};
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? "GET";
   const accessToken = accessTokenProvider ? await accessTokenProvider() : null;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "content-type": "application/json",
-      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: {
+        "content-type": "application/json",
+        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+      ...init,
+    });
+  } catch (error) {
+    throw new ApiError({
+      message:
+        error instanceof Error
+          ? `The backend was unreachable: ${error.message}`
+          : "The backend was unreachable.",
+      status: 0,
+      method,
+      path,
+    });
+  }
+
+  const payload = await parseResponseBody(response);
+  const objectPayload = toSafeObject(payload);
+  const requestId =
+    response.headers.get("x-request-id") ??
+    (typeof objectPayload?.requestId === "string" ? objectPayload.requestId : undefined);
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; message?: string }
-      | null;
-
-    const fallbackMessage =
-      response.status === 405
-        ? `${method} ${path} returned 405. The API function was not reached; check the Vercel project root, output directory, and /api function deployment.`
-        : `Request failed with status ${response.status}.`;
-    const message = payload?.message ?? payload?.error ?? fallbackMessage;
+    const message = toErrorMessage(response.status, method, path, payload);
 
     if (response.status === 401 && typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent(API_UNAUTHORIZED_EVENT, {
           detail: {
             message,
+            requestId,
           },
         }),
       );
     }
 
-    throw new ApiError(message, response.status);
+    throw new ApiError({
+      message,
+      status: response.status,
+      method,
+      path,
+      requestId,
+      payload,
+    });
   }
 
-  return (await response.json()) as T;
+  return payload as T;
 }
 
 export const api = {
@@ -107,7 +189,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   updateLead: (leadId: string, payload: UpdateLeadInput) =>
-    request<{ lead: Lead }>(`/api/leads/${leadId}`, {
+    request<UpdateLeadResponse>(`/api/leads/${leadId}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),

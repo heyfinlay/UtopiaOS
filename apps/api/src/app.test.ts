@@ -458,7 +458,11 @@ describe("createApp", () => {
       createLead: vi.fn(async () => {
         throw new Error("not used");
       }),
+      createLeadWithActivity: vi.fn(async () => {
+        throw new Error("not used");
+      }),
       updateLead: vi.fn(async () => null),
+      updateLeadWithActivity: vi.fn(async () => null),
       updateLeadStatus: vi.fn(async () => null),
       applyResearchToLead: vi.fn(async () => null),
       awardXp: vi.fn(async () => []),
@@ -469,6 +473,9 @@ describe("createApp", () => {
         throw new Error("not used");
       }),
       updateAgentRun: vi.fn(async () => null),
+      startLeadResearchRun: vi.fn(async () => null),
+      completeLeadResearch: vi.fn(async () => null),
+      failLeadResearch: vi.fn(async () => ({ lead: null, agentRun: null })),
       listApprovals: vi.fn(async () => []),
       createApproval: vi.fn(async () => {
         throw new Error("not used");
@@ -476,6 +483,7 @@ describe("createApp", () => {
       resolveApproval: vi.fn(async () => null),
       listClients: vi.fn(async () => []),
       promoteLeadToClient: vi.fn(async () => null),
+      promoteLeadWithActivity: vi.fn(async () => null),
       updateClient: vi.fn(async () => null),
       listTemplates: vi.fn(async () => []),
       createTemplate: vi.fn(async () => {

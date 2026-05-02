@@ -9,13 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { templatesApi } from "@/domains/templates/api";
+import { queryKeys } from "@/lib/query/keys";
+import { refetchAfterTemplateChange } from "@/lib/query/refetchers";
 
 export function VaultPage() {
   const queryClient = useQueryClient();
   const templatesQuery = useQuery({
-    queryKey: ["templates"],
-    queryFn: api.getTemplates,
+    queryKey: queryKeys.templates.all(),
+    queryFn: templatesApi.list,
     refetchInterval: 20_000,
   });
   const templates = templatesQuery.data?.templates ?? [];
@@ -48,9 +50,9 @@ export function VaultPage() {
   }, [selectedTemplate?.id]);
 
   const createTemplateMutation = useMutation({
-    mutationFn: (payload: typeof draft) => api.createTemplate(payload),
+    mutationFn: (payload: typeof draft) => templatesApi.create(payload),
     onSuccess: async ({ template }) => {
-      await queryClient.invalidateQueries({ queryKey: ["templates"] });
+      await refetchAfterTemplateChange(queryClient);
       setSelectedId(template.id);
       toast.success(`${template.title} created.`);
     },
@@ -62,18 +64,18 @@ export function VaultPage() {
         throw new Error("No template selected.");
       }
 
-      return api.updateTemplate(selectedTemplate.id, draft);
+      return templatesApi.update(selectedTemplate.id, draft);
     },
     onSuccess: async ({ template }) => {
-      await queryClient.invalidateQueries({ queryKey: ["templates"] });
+      await refetchAfterTemplateChange(queryClient);
       toast.success(`${template.title} saved as v${template.version}.`);
     },
   });
 
   const archiveTemplateMutation = useMutation({
-    mutationFn: (templateId: string) => api.updateTemplate(templateId, { archived: true }),
+    mutationFn: (templateId: string) => templatesApi.update(templateId, { archived: true }),
     onSuccess: async ({ template }) => {
-      await queryClient.invalidateQueries({ queryKey: ["templates"] });
+      await refetchAfterTemplateChange(queryClient);
       toast.success(`${template.title} archived.`);
     },
   });

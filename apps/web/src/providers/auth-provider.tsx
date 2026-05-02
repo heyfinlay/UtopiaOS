@@ -11,7 +11,11 @@ import {
 import type { Session, User } from "@supabase/supabase-js";
 
 import { API_UNAUTHORIZED_EVENT, setAccessTokenProvider } from "@/lib/api";
-import { hasSupabaseBrowserAuth, supabase } from "@/lib/supabase";
+import {
+  hasSupabaseBrowserAuth,
+  supabase,
+  supabaseBrowserAuthMessage,
+} from "@/lib/supabase";
 
 type AuthContextValue = {
   authConfigured: boolean;
@@ -158,7 +162,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       loading,
       session,
       user,
-      authMessage,
+      authMessage: authMessage ?? supabaseBrowserAuthMessage,
       signIn,
       signUp,
       signOut,

@@ -1,18 +1,13 @@
 import type { PropsWithChildren } from "react";
-import { useQuery } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
 import { AuthScreen } from "@/components/auth-screen";
 import { useAuth } from "@/providers/auth-provider";
 
 type AuthGateViewProps = PropsWithChildren<{
   authConfigured: boolean;
   authLoading: boolean;
-  authRequired: boolean;
   currentUserAuthenticated: boolean;
   message?: string | null;
-  statusLoading?: boolean;
-  statusError?: string | null;
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignUp: (email: string, password: string) => Promise<void>;
 }>;
@@ -20,19 +15,30 @@ type AuthGateViewProps = PropsWithChildren<{
 export function AuthGateView({
   authConfigured,
   authLoading,
-  authRequired,
   currentUserAuthenticated,
   message,
-  statusLoading = false,
-  statusError = null,
   onSignIn,
   onSignUp,
   children,
 }: AuthGateViewProps) {
+  if (!authConfigured) {
+    return (
+      <AuthScreen
+        authReady={false}
+        message={
+          message ??
+          "Browser Supabase Auth is required. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY."
+        }
+        onSignIn={onSignIn}
+        onSignUp={onSignUp}
+      />
+    );
+  }
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#b8b8b8] text-[12px] font-bold uppercase tracking-[0.2em] text-black">
-        Initializing Access Gate
+        Initializing authenticated session
       </div>
     );
   }
@@ -41,64 +47,25 @@ export function AuthGateView({
     return <>{children}</>;
   }
 
-  if (authConfigured) {
-    return (
-      <AuthScreen
-        authReady
-        loading={statusLoading}
-        message={statusError ?? message}
-        onSignIn={onSignIn}
-        onSignUp={onSignUp}
-      />
-    );
-  }
-
-  if (statusLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#b8b8b8] text-[12px] font-bold uppercase tracking-[0.2em] text-black">
-        Initializing Access Gate
-      </div>
-    );
-  }
-
-  if (!authRequired) {
-    return <>{children}</>;
-  }
-
-  if (!authConfigured) {
-    return (
-      <AuthScreen
-        authReady={false}
-        message={
-          statusError ??
-          message ??
-          "Browser Supabase Auth is not configured. Set VITE_SUPABASE_URL and a publishable or anon key."
-        }
-        onSignIn={onSignIn}
-        onSignUp={onSignUp}
-      />
-    );
-  }
+  return (
+    <AuthScreen
+      authReady
+      message={message}
+      onSignIn={onSignIn}
+      onSignUp={onSignUp}
+    />
+  );
 }
 
 export function AuthGate({ children }: PropsWithChildren) {
   const { authConfigured, loading, session, authMessage, signIn, signUp } = useAuth();
-  const systemStatusQuery = useQuery({
-    queryKey: ["system-status"],
-    queryFn: api.getSystemStatus,
-    retry: false,
-    staleTime: 20_000,
-  });
 
   return (
     <AuthGateView
       authConfigured={authConfigured}
       authLoading={loading}
-      authRequired={systemStatusQuery.data?.authRequired ?? false}
       currentUserAuthenticated={Boolean(session?.user)}
       message={authMessage}
-      statusLoading={systemStatusQuery.isLoading}
-      statusError={systemStatusQuery.error instanceof Error ? systemStatusQuery.error.message : null}
       onSignIn={signIn}
       onSignUp={signUp}
     >

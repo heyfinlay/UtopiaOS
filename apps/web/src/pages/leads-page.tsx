@@ -24,7 +24,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { approvalsApi } from "@/domains/approvals/api";
+import { leadsApi } from "@/domains/leads/api";
 import {
   describePriority,
   formatCompactCurrency,
@@ -32,6 +33,13 @@ import {
   groupLeadsByStatus,
   leadColumnLabels,
 } from "@/lib/dashboard";
+import { queryKeys } from "@/lib/query/keys";
+import {
+  refetchAfterApprovalChange,
+  refetchAfterLeadPromotion,
+  refetchAfterLeadResearch,
+  refetchAfterLeadUpdate,
+} from "@/lib/query/refetchers";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/ui-store";
 
@@ -61,17 +69,14 @@ export function LeadsPage() {
   });
 
   const leadsQuery = useQuery({
-    queryKey: ["leads"],
-    queryFn: api.getLeads,
+    queryKey: queryKeys.leads.all(),
+    queryFn: leadsApi.list,
   });
 
   const researchMutation = useMutation({
-    mutationFn: api.researchLead,
+    mutationFn: leadsApi.research,
     onSuccess: async ({ lead }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["leads"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-      ]);
+      await refetchAfterLeadResearch(queryClient, lead.id);
       toast.success(`${lead.company} researched and updated.`);
     },
     onError: (error) => {
@@ -141,7 +146,7 @@ export function LeadsPage() {
         throw new Error("No selected lead.");
       }
 
-      return api.updateLead(selectedLead.id, {
+      return leadsApi.update(selectedLead.id, {
         status: leadDraft.status as typeof selectedLead.status,
         priority: leadDraft.priority as typeof selectedLead.priority,
         nextAction: leadDraft.nextAction,
@@ -160,10 +165,7 @@ export function LeadsPage() {
       });
     },
     onSuccess: async ({ lead }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["leads"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-      ]);
+      await refetchAfterLeadUpdate(queryClient, lead.id);
       toast.success(`${lead.company} updated.`);
     },
     onError: (error) => {
@@ -177,18 +179,17 @@ export function LeadsPage() {
         throw new Error("No selected lead.");
       }
 
-      return api.promoteLead(selectedLead.id, {
+      return leadsApi.promote(selectedLead.id, {
         auditNote: selectedLead.research?.overview ?? selectedLead.notes,
         roadmapItem: selectedLead.delivery?.nextDeliverable ?? selectedLead.nextAction,
       });
     },
     onSuccess: async ({ client }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["leads"] }),
-        queryClient.invalidateQueries({ queryKey: ["clients"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-      ]);
+      await refetchAfterLeadPromotion(queryClient, selectedLead?.id);
       toast.success(`${client.company} promoted to client delivery.`);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Lead promotion failed.");
     },
   });
 
@@ -198,7 +199,7 @@ export function LeadsPage() {
         throw new Error("No selected lead.");
       }
 
-      return api.requestApproval({
+      return approvalsApi.create({
         action: "change_lead_status",
         targetType: "lead",
         targetId: selectedLead.id,
@@ -208,11 +209,11 @@ export function LeadsPage() {
       });
     },
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["approvals"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-      ]);
+      await refetchAfterApprovalChange(queryClient);
       toast.success("Approval requested.");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Approval request failed.");
     },
   });
 
@@ -321,6 +322,13 @@ export function LeadsPage() {
 
         <ScrollArea className="mt-5 h-[calc(100vh-21rem)] min-h-[520px] pr-4">
           <div className="space-y-5">
+            {leadsQuery.isError ? (
+              <div className="rounded-3xl border border-rose-300/20 bg-rose-300/8 px-4 py-5 text-sm text-rose-100">
+                {leadsQuery.error instanceof Error
+                  ? leadsQuery.error.message
+                  : "Failed to load leads."}
+              </div>
+            ) : null}
             {groupLeadsByStatus(filteredLeads).map((column) => (
               <div key={column.status}>
                 <div className="mb-3 flex items-center justify-between">
@@ -545,7 +553,7 @@ export function LeadsPage() {
                     onClick={() => approvalMutation.mutate()}
                     disabled={approvalMutation.isPending}
                   >
-                    Approval
+                    {approvalMutation.isPending ? "Requesting..." : "Approval"}
                     <ShieldCheck className="ml-2 h-4 w-4" />
                   </Button>
                   <Button
@@ -554,7 +562,7 @@ export function LeadsPage() {
                     onClick={() => promoteMutation.mutate()}
                     disabled={promoteMutation.isPending}
                   >
-                    Promote
+                    {promoteMutation.isPending ? "Promoting..." : "Promote"}
                     <BriefcaseBusiness className="ml-2 h-4 w-4" />
                   </Button>
                   <Button
@@ -562,7 +570,7 @@ export function LeadsPage() {
                     onClick={() => updateLeadMutation.mutate()}
                     disabled={updateLeadMutation.isPending}
                   >
-                    Save
+                    {updateLeadMutation.isPending ? "Saving..." : "Save"}
                     <Save className="ml-2 h-4 w-4" />
                   </Button>
                 </div>

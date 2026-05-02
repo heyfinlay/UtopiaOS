@@ -1,39 +1,33 @@
 # Agent Integration
 
-## Overview
+## Scope
 
-The `research_lead` action is implemented in [`packages/agent-actions/src/index.ts`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/agent-actions/src/index.ts).
+UtopiaOS treats OpenClaw as an external agent runtime for the `research_lead` job. The API owns auth, ownership, persistence, validation, and failure visibility. OpenClaw only owns execution of the research prompt and emission of JSON to stdout.
 
-The flow is:
+## Required Environment
 
-1. The API receives `POST /api/leads/:leadId/research`.
-2. The repository marks the lead as `researching`.
-3. The API creates an `agent_run`.
-4. The agent action builds a prompt from the lead record.
-5. If `OPENCLAW_COMMAND` is configured, the prompt is piped into that command.
-6. Stdout is parsed as JSON and validated.
-7. The validated result is written back to the lead and activity log.
-8. If the command fails, the system falls back to mock research and records the error on the run.
+- `OPENCLAW_COMMAND` optional
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `WEB_ORIGIN`
+- `VITE_API_URL`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY` or `VITE_SUPABASE_ANON_KEY`
 
-## Required Command Behavior
+When `OPENCLAW_COMMAND` is unset, UtopiaOS runs in explicit `mock` mode. When it is set, UtopiaOS runs in `openclaw-cli` mode and does not silently fall back to mock if the command fails.
 
-Set:
+## Contract
 
-```bash
-OPENCLAW_COMMAND="your-command-here"
-```
-
-The command must:
+`OPENCLAW_COMMAND` must:
 
 - read the full prompt from stdin
 - write strict JSON to stdout
-- exit with status `0` on success
+- exit `0` on success
+- write any diagnostics or failure detail to stderr
 
-Stderr is captured and attached to the failed run path when execution fails.
+The command output must match the shared `researchLeadResultSchema` in [`packages/schemas/src/index.ts`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/schemas/src/index.ts).
 
-## Expected JSON Shape
-
-The payload must match the shared research schema in [`packages/schemas/src/index.ts`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/schemas/src/index.ts).
+Expected format: `research_lead_json`
 
 Required keys:
 
@@ -48,55 +42,78 @@ Required keys:
 - `confidence`
 - `sources`
 
-Example shape:
+## Runtime Wrapper
 
-```json
-{
-  "overview": "Short summary of why the lead is worth pursuing.",
-  "companySnapshot": "Concise description of the company and current context.",
-  "icpFit": "Why the account fits the target profile.",
-  "buyingSignals": ["Signal one", "Signal two"],
-  "opportunities": [
-    {
-      "title": "AI Efficiency Audit",
-      "reason": "Why this offer angle fits.",
-      "confidence": 82
-    }
-  ],
-  "recommendedOffer": "Recommended starting offer.",
-  "nextAction": "Lowest-risk next human action.",
-  "riskFlags": ["Key uncertainty or caution."],
-  "confidence": 80,
-  "sources": ["Lead intake", "Website"]
-}
-```
+All OpenClaw execution now runs through `executeOpenClawResearchJob()` in [`packages/agent-actions/src/index.ts`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/agent-actions/src/index.ts).
 
-## Suggested OpenClaw Wiring
+The wrapper is responsible for:
 
-If your agent CLI supports a JSON mode that reads from stdin, use that directly. For example:
+- building the prompt from the lead
+- executing `OPENCLAW_COMMAND`
+- capturing stdout and stderr
+- enforcing timeout
+- parsing JSON
+- schema-validating output
+- returning a typed success or typed failure
 
-```bash
-OPENCLAW_COMMAND="openclaw run --json"
-```
+No other part of the app should parse raw OpenClaw output.
 
-If your CLI needs a wrapper, point `OPENCLAW_COMMAND` at the wrapper script instead.
+## End-to-End Flow
 
-## Safety Properties
+1. User clicks `Run research`.
+2. API verifies the Supabase user and loads the owner-scoped lead.
+3. Repository marks the lead as `researching`.
+4. Repository creates an `agent_run`.
+5. `executeOpenClawResearchJob()` runs OpenClaw or mock mode.
+6. On success, schema-validated research is persisted to the lead.
+7. `agent_runs`, activity, and progression stats are updated.
+8. On failure, the run is marked failed and the lead status is restored.
+9. The frontend refetches leads, dashboard, and runtime status and shows the result.
 
-- The database is the source of truth.
-- External agent output is not trusted until it passes schema validation.
-- High-risk actions are not part of this execution path.
-- Every run is logged with status and timestamps.
+## Failure Behavior
 
-## How To Verify The Integration
+- Invalid JSON: the run fails, the lead is restored, and the UI receives a visible error.
+- Schema validation failure: the run fails, the lead is restored, and the validation message is kept on the failed run.
+- Non-zero exit: the run fails, the lead is restored, and stderr is included in the failure message when available.
+- Timeout: the run fails, the lead is restored, and the timeout is reported.
+- Missing OpenClaw command: UtopiaOS uses explicit `mock` mode.
+- Configured OpenClaw command fails: UtopiaOS does not fall back to mock mode.
 
-1. Set `OPENCLAW_COMMAND`.
-2. Restart the API.
-3. Open the Agents screen or call [http://localhost:8787/api/system/status](http://localhost:8787/api/system/status).
-4. Confirm:
-   - `agentMode` is `openclaw-cli`
-   - `agentCommandConfigured` is `true`
-5. Create a lead and run research.
-6. Confirm the run appears in the Agents screen.
+## Persistence
 
-If the command fails, the API will still return a valid response using the mock fallback, and the run will contain the error details.
+`agent_runs` persists:
+
+- action
+- mode
+- status
+- summary
+- target type and target id
+- prompt
+- started and completed timestamps
+- error
+
+The Agents screen and `/api/system/status` surface runtime mode and the last observed run outcome.
+
+## Diagnostics
+
+`/api/system/status` now exposes:
+
+- whether OpenClaw is configured
+- current runtime mode
+- command preview
+- timeout
+- expected output format
+- last run status
+- last run error
+- schema validation status
+- security note
+
+## Future Direction
+
+OpenClaw is currently integrated as a local CLI boundary. A future gateway/session-based runtime should preserve the same contract:
+
+- authenticated owner on the Utopia side
+- explicit job id and run status
+- schema-validated output
+- persisted diagnostics
+- no silent fallback on configured runtime failure

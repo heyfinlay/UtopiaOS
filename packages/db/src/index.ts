@@ -68,7 +68,17 @@ export type UtopiaRepository = {
   listLeads: () => Promise<Lead[]>;
   getLead: (leadId: string) => Promise<Lead | null>;
   createLead: (input: CreateLeadInput) => Promise<Lead>;
+  createLeadWithActivity: (input: {
+    lead: CreateLeadInput;
+    activity: CreateActivityInput;
+    xpAwards: Partial<StatXpMap>;
+  }) => Promise<{ lead: Lead; activity: Activity; stats: ProgressStat[] }>;
   updateLead: (leadId: string, input: UpdateLeadInput) => Promise<Lead | null>;
+  updateLeadWithActivity: (input: {
+    leadId: string;
+    patch: UpdateLeadInput;
+    activity: Omit<CreateActivityInput, "entityId">;
+  }) => Promise<{ lead: Lead; activity: Activity } | null>;
   updateLeadStatus: (leadId: string, status: Lead["status"]) => Promise<Lead | null>;
   applyResearchToLead: (
     leadId: string,
@@ -81,6 +91,26 @@ export type UtopiaRepository = {
     runId: string,
     updates: Partial<AgentRun>,
   ) => Promise<AgentRun | null>;
+  startLeadResearchRun: (input: {
+    leadId: string;
+    run: CreateAgentRunInput;
+  }) => Promise<{ lead: Lead; agentRun: AgentRun } | null>;
+  completeLeadResearch: (input: {
+    leadId: string;
+    runId: string;
+    research: ResearchLeadResult;
+    leadStatusOnComplete?: Lead["status"];
+    runUpdates: Partial<AgentRun>;
+    activity: CreateActivityInput;
+    xpAwards: Partial<StatXpMap>;
+  }) => Promise<{ lead: Lead; agentRun: AgentRun; activity: Activity; stats: ProgressStat[] } | null>;
+  failLeadResearch: (input: {
+    leadId: string;
+    runId: string;
+    restoreStatus: Lead["status"];
+    runUpdates: Partial<AgentRun>;
+    activity?: CreateActivityInput;
+  }) => Promise<{ lead: Lead | null; agentRun: AgentRun | null; activity?: Activity }>;
   listApprovals: () => Promise<Approval[]>;
   createApproval: (input: RequestApprovalInput) => Promise<Approval>;
   resolveApproval: (
@@ -92,6 +122,11 @@ export type UtopiaRepository = {
     leadId: string,
     input?: { auditNote?: string; roadmapItem?: string },
   ) => Promise<{ client: Client; lead: Lead } | null>;
+  promoteLeadWithActivity: (input: {
+    leadId: string;
+    promotion?: { auditNote?: string; roadmapItem?: string };
+    activity: Omit<CreateActivityInput, "entityId">;
+  }) => Promise<{ client: Client; lead: Lead; activity: Activity } | null>;
   updateClient: (clientId: string, input: UpdateClientInput) => Promise<Client | null>;
   listTemplates: () => Promise<Template[]>;
   createTemplate: (input: CreateTemplateInput) => Promise<Template>;
@@ -1157,6 +1192,62 @@ export const createMemoryUtopiaRepository = (
 
       return lead;
     },
+    createLeadWithActivity: async ({ lead: input, activity, xpAwards }) => {
+      const lead = await (async () => {
+        const timestamp = nowIso();
+        const createdLead = leadSchema.parse({
+          id: createUuid(),
+          ...input,
+          status: "new",
+          nextAction: "Run AI research to sharpen the first outreach angle.",
+          commercial: createDefaultCommercialProfile(input.priority),
+          delivery: createDefaultDeliveryProfile(),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+
+        state = {
+          ...state,
+          leads: sortLeads([createdLead, ...state.leads]),
+        };
+
+        return createdLead;
+      })();
+      const stats = await listProgressStatsFromMap({
+        sales: state.statXp.sales + (xpAwards.sales ?? 0),
+        delivery: state.statXp.delivery + (xpAwards.delivery ?? 0),
+        content: state.statXp.content + (xpAwards.content ?? 0),
+        systems: state.statXp.systems + (xpAwards.systems ?? 0),
+        relationships: state.statXp.relationships + (xpAwards.relationships ?? 0),
+        revenue: state.statXp.revenue + (xpAwards.revenue ?? 0),
+        discipline: state.statXp.discipline + (xpAwards.discipline ?? 0),
+      });
+      state = {
+        ...state,
+        statXp: {
+          sales: stats.find((stat) => stat.key === "sales")?.xp ?? state.statXp.sales,
+          delivery: stats.find((stat) => stat.key === "delivery")?.xp ?? state.statXp.delivery,
+          content: stats.find((stat) => stat.key === "content")?.xp ?? state.statXp.content,
+          systems: stats.find((stat) => stat.key === "systems")?.xp ?? state.statXp.systems,
+          relationships:
+            stats.find((stat) => stat.key === "relationships")?.xp ?? state.statXp.relationships,
+          revenue: stats.find((stat) => stat.key === "revenue")?.xp ?? state.statXp.revenue,
+          discipline: stats.find((stat) => stat.key === "discipline")?.xp ?? state.statXp.discipline,
+        },
+      };
+      const createdActivity = activitySchema.parse({
+        ...activity,
+        entityId: lead.id,
+        id: activity.id ?? createUuid(),
+        createdAt: activity.createdAt ?? nowIso(),
+      });
+      state = {
+        ...state,
+        activities: [createdActivity, ...state.activities],
+      };
+
+      return { lead, activity: createdActivity, stats };
+    },
     updateLead: async (leadId, input) => {
       const timestamp = nowIso();
       let updatedLead: Lead | null = null;
@@ -1190,6 +1281,60 @@ export const createMemoryUtopiaRepository = (
       };
 
       return updatedLead;
+    },
+    updateLeadWithActivity: async ({ leadId, patch, activity }) => {
+      const lead = await (async () => {
+        const timestamp = nowIso();
+        let updatedLead: Lead | null = null;
+
+        state = {
+          ...state,
+          leads: sortLeads(
+            state.leads.map((candidate) => {
+              if (candidate.id !== leadId) {
+                return candidate;
+              }
+
+              updatedLead = leadSchema.parse({
+                ...candidate,
+                ...patch,
+                commercial: patch.commercial
+                  ? {
+                      ...(candidate.commercial ?? createDefaultCommercialProfile(candidate.priority)),
+                      ...patch.commercial,
+                    }
+                  : candidate.commercial,
+                delivery: patch.delivery
+                  ? { ...(candidate.delivery ?? createDefaultDeliveryProfile()), ...patch.delivery }
+                  : candidate.delivery,
+                updatedAt: timestamp,
+              });
+
+              return updatedLead;
+            }),
+          ),
+        };
+
+        return updatedLead;
+      })();
+
+      if (!lead) {
+        return null;
+      }
+      const persistedLead = lead as Lead;
+
+      const createdActivity = activitySchema.parse({
+        ...activity,
+        entityId: persistedLead.id,
+        id: activity.id ?? createUuid(),
+        createdAt: activity.createdAt ?? nowIso(),
+      });
+      state = {
+        ...state,
+        activities: [createdActivity, ...state.activities],
+      };
+
+      return { lead: persistedLead, activity: createdActivity };
     },
     updateLeadStatus: async (leadId, status) => {
       const timestamp = nowIso();
@@ -1307,6 +1452,185 @@ export const createMemoryUtopiaRepository = (
 
       return updatedRun;
     },
+    startLeadResearchRun: async ({ leadId, run }) => {
+      const lead = await (async () => {
+        const timestamp = nowIso();
+        let updatedLead: Lead | null = null;
+
+        state = {
+          ...state,
+          leads: sortLeads(
+            state.leads.map((candidate) => {
+              if (candidate.id !== leadId) {
+                return candidate;
+              }
+
+              updatedLead = leadSchema.parse({
+                ...candidate,
+                status: "researching",
+                updatedAt: timestamp,
+              });
+
+              return updatedLead;
+            }),
+          ),
+        };
+
+        return updatedLead;
+      })();
+
+      if (!lead) {
+        return null;
+      }
+
+      const agentRun = agentRunSchema.parse({
+        ...run,
+        id: run.id ?? createUuid(),
+        startedAt: run.startedAt ?? nowIso(),
+      });
+      state = {
+        ...state,
+        agentRuns: [agentRun, ...state.agentRuns],
+      };
+
+      return { lead, agentRun };
+    },
+    completeLeadResearch: async ({
+      leadId,
+      runId,
+      research,
+      leadStatusOnComplete = "qualified",
+      runUpdates,
+      activity,
+      xpAwards,
+    }) => {
+      const timestamp = nowIso();
+      let updatedLead: Lead | null = null;
+      let updatedRun: AgentRun | null = null;
+
+      state = {
+        ...state,
+        leads: sortLeads(
+          state.leads.map((candidate) => {
+            if (candidate.id !== leadId) {
+              return candidate;
+            }
+
+            updatedLead = leadSchema.parse({
+              ...candidate,
+              status: leadStatusOnComplete,
+              nextAction: research.nextAction,
+              research,
+              lastResearchedAt: timestamp,
+              updatedAt: timestamp,
+            });
+
+            return updatedLead;
+          }),
+        ),
+        agentRuns: state.agentRuns.map((candidate) => {
+          if (candidate.id !== runId) {
+            return candidate;
+          }
+
+          updatedRun = agentRunSchema.parse({
+            ...candidate,
+            ...runUpdates,
+            completedAt: runUpdates.completedAt ?? timestamp,
+          });
+
+          return updatedRun;
+        }),
+        statXp: {
+          sales: state.statXp.sales + (xpAwards.sales ?? 0),
+          delivery: state.statXp.delivery + (xpAwards.delivery ?? 0),
+          content: state.statXp.content + (xpAwards.content ?? 0),
+          systems: state.statXp.systems + (xpAwards.systems ?? 0),
+          relationships: state.statXp.relationships + (xpAwards.relationships ?? 0),
+          revenue: state.statXp.revenue + (xpAwards.revenue ?? 0),
+          discipline: state.statXp.discipline + (xpAwards.discipline ?? 0),
+        },
+      };
+
+      if (!updatedLead || !updatedRun) {
+        return null;
+      }
+      const persistedLead = updatedLead as Lead;
+      const persistedRun = updatedRun as AgentRun;
+
+      const createdActivity = activitySchema.parse({
+        ...activity,
+        entityId: persistedLead.id,
+        id: activity.id ?? createUuid(),
+        createdAt: activity.createdAt ?? timestamp,
+      });
+      state = {
+        ...state,
+        activities: [createdActivity, ...state.activities],
+      };
+
+      return {
+        lead: persistedLead,
+        agentRun: persistedRun,
+        activity: createdActivity,
+        stats: await listProgressStats(),
+      };
+    },
+    failLeadResearch: async ({ leadId, runId, restoreStatus, runUpdates, activity }) => {
+      const timestamp = nowIso();
+      let updatedLead: Lead | null = null;
+      let updatedRun: AgentRun | null = null;
+
+      state = {
+        ...state,
+        leads: sortLeads(
+          state.leads.map((candidate) => {
+            if (candidate.id !== leadId) {
+              return candidate;
+            }
+
+            updatedLead = leadSchema.parse({
+              ...candidate,
+              status: restoreStatus,
+              updatedAt: timestamp,
+            });
+
+            return updatedLead;
+          }),
+        ),
+        agentRuns: state.agentRuns.map((candidate) => {
+          if (candidate.id !== runId) {
+            return candidate;
+          }
+
+          updatedRun = agentRunSchema.parse({
+            ...candidate,
+            ...runUpdates,
+            completedAt: runUpdates.completedAt ?? timestamp,
+          });
+
+          return updatedRun;
+        }),
+      };
+
+      const createdActivity = activity
+        ? activitySchema.parse({
+            ...activity,
+            entityId: runId,
+            id: activity.id ?? createUuid(),
+            createdAt: activity.createdAt ?? timestamp,
+          })
+        : undefined;
+
+      if (createdActivity) {
+        state = {
+          ...state,
+          activities: [createdActivity, ...state.activities],
+        };
+      }
+
+      return { lead: updatedLead, agentRun: updatedRun, activity: createdActivity };
+    },
     listApprovals: async () =>
       [...state.approvals].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     createApproval: async (input) => {
@@ -1399,6 +1723,79 @@ export const createMemoryUtopiaRepository = (
       };
 
       return { client, lead: updatedLead };
+    },
+    promoteLeadWithActivity: async ({ leadId, promotion, activity }) => {
+      const promoted = await (async () => {
+        const lead = state.leads.find((candidate) => candidate.id === leadId);
+
+        if (!lead) {
+          return null;
+        }
+
+        const timestamp = nowIso();
+        const existingClient = state.clients.find((client) => client.leadId === leadId);
+        const auditNotes = [
+          ...(existingClient?.auditNotes ?? []),
+          promotion?.auditNote ??
+            lead.research?.overview ??
+            lead.notes ??
+            "Lead promoted into client delivery.",
+        ];
+        const deliveryRoadmap = [
+          ...(existingClient?.deliveryRoadmap ?? []),
+          promotion?.roadmapItem ??
+            lead.delivery?.nextDeliverable ??
+            lead.research?.recommendedOffer ??
+            "Confirm delivery roadmap.",
+        ];
+        const client = clientSchema.parse({
+          id: existingClient?.id ?? createUuid(),
+          leadId,
+          company: lead.company,
+          status: existingClient?.status ?? "active",
+          auditNotes,
+          deliveryRoadmap,
+          createdAt: existingClient?.createdAt ?? timestamp,
+          updatedAt: timestamp,
+        });
+        const updatedLead = leadSchema.parse({
+          ...lead,
+          status: lead.status === "won" ? lead.status : "proposal",
+          delivery: lead.delivery ?? createDefaultDeliveryProfile(),
+          updatedAt: timestamp,
+        });
+
+        state = {
+          ...state,
+          clients: existingClient
+            ? state.clients.map((candidate) => (candidate.id === client.id ? client : candidate))
+            : [client, ...state.clients],
+          leads: sortLeads(
+            state.leads.map((candidate) =>
+              candidate.id === updatedLead.id ? updatedLead : candidate,
+            ),
+          ),
+        };
+
+        return { client, lead: updatedLead };
+      })();
+
+      if (!promoted) {
+        return null;
+      }
+
+      const createdActivity = activitySchema.parse({
+        ...activity,
+        entityId: promoted.lead.id,
+        id: activity.id ?? createUuid(),
+        createdAt: activity.createdAt ?? nowIso(),
+      });
+      state = {
+        ...state,
+        activities: [createdActivity, ...state.activities],
+      };
+
+      return { ...promoted, activity: createdActivity };
     },
     updateClient: async (clientId, input) => {
       let updatedClient: Client | null = null;
@@ -1708,6 +2105,92 @@ export const createSupabaseUtopiaRepository = ({
 
       return toLead(data as LeadRow);
     },
+    createLeadWithActivity: async ({ lead: input, activity, xpAwards }) => {
+      const lead = await (async () => {
+        const ownerId = getOwnerId();
+        const { data, error } = await client
+          .from("leads")
+          .insert({
+            owner_id: ownerId,
+            name: input.name,
+            company: input.company,
+            website: input.website ?? null,
+            source: input.source ?? null,
+            priority: input.priority,
+            status: "new",
+            notes: input.notes ?? null,
+            next_action: "Run AI research to sharpen the first outreach angle.",
+            research_payload: {},
+            commercial_profile: createDefaultCommercialProfile(input.priority),
+            delivery_profile: createDefaultDeliveryProfile(),
+          })
+          .select(
+            "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+          )
+          .single();
+
+        assertNoError(error, "Failed to create lead.");
+
+        return toLead(data as LeadRow);
+      })();
+      const stats = await (async () => {
+        const ownerId = getOwnerId();
+        await ensureProgressionRow();
+        const { data: currentRow, error: readError } = await client
+          .from("progression_stats")
+          .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
+          .eq("owner_id", ownerId)
+          .single();
+
+        assertNoError(readError, "Failed to read progression stats before XP award.");
+
+        const current = mapProgressionStatsRow(currentRow as ProgressionStatsRow);
+        const next = {
+          owner_id: ownerId,
+          sales: current.sales + (xpAwards.sales ?? 0),
+          delivery: current.delivery + (xpAwards.delivery ?? 0),
+          content: current.content + (xpAwards.content ?? 0),
+          systems: current.systems + (xpAwards.systems ?? 0),
+          relationships: current.relationships + (xpAwards.relationships ?? 0),
+          revenue: current.revenue + (xpAwards.revenue ?? 0),
+          discipline: current.discipline + (xpAwards.discipline ?? 0),
+        };
+
+        const { data, error } = await client
+          .from("progression_stats")
+          .upsert(next, { onConflict: "owner_id" })
+          .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
+          .single();
+
+        assertNoError(error, "Failed to award XP.");
+
+        return listProgressStatsFromMap(mapProgressionStatsRow(data as ProgressionStatsRow));
+      })();
+      const createdActivity = await (async () => {
+        const ownerId = getOwnerId();
+        const { data, error } = await client
+          .from("activities")
+          .insert({
+            id: activity.id ?? createUuid(),
+            owner_id: ownerId,
+            entity_type: activity.entityType,
+            entity_id: lead.id,
+            kind: activity.kind,
+            actor: activity.actor,
+            message: activity.message,
+            xp_awards: activity.xpAwards,
+            created_at: activity.createdAt ?? nowIso(),
+          })
+          .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
+          .single();
+
+        assertNoError(error, "Failed to create activity.");
+
+        return toActivity(data as ActivityRow);
+      })();
+
+      return { lead, activity: createdActivity, stats };
+    },
     updateLead: async (leadId, input) => {
       const ownerId = getOwnerId();
       const existingLead = await getLeadById(leadId);
@@ -1752,6 +2235,82 @@ export const createSupabaseUtopiaRepository = ({
       assertNoError(error, "Failed to update lead.");
 
       return data ? toLead(data as LeadRow) : null;
+    },
+    updateLeadWithActivity: async ({ leadId, patch, activity }) => {
+      const lead = await (async () => {
+        const ownerId = getOwnerId();
+        const existingLead = await getLeadById(leadId);
+
+        if (!existingLead) {
+          return null;
+        }
+
+        const payload: Record<string, unknown> = {};
+
+        if (typeof patch.name === "string") payload.name = patch.name;
+        if (typeof patch.company === "string") payload.company = patch.company;
+        if ("website" in patch) payload.website = patch.website ?? null;
+        if ("source" in patch) payload.source = patch.source ?? null;
+        if (patch.priority) payload.priority = patch.priority;
+        if (patch.status) payload.status = patch.status;
+        if ("notes" in patch) payload.notes = patch.notes ?? null;
+        if ("nextAction" in patch) payload.next_action = patch.nextAction ?? null;
+        if (patch.commercial) {
+          payload.commercial_profile = {
+            ...(existingLead.commercial ?? createDefaultCommercialProfile(existingLead.priority)),
+            ...patch.commercial,
+          };
+        }
+        if (patch.delivery) {
+          payload.delivery_profile = {
+            ...(existingLead.delivery ?? createDefaultDeliveryProfile()),
+            ...patch.delivery,
+          };
+        }
+
+        const { data, error } = await client
+          .from("leads")
+          .update(payload)
+          .eq("owner_id", ownerId)
+          .eq("id", leadId)
+          .select(
+            "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+          )
+          .maybeSingle();
+
+        assertNoError(error, "Failed to update lead.");
+
+        return data ? toLead(data as LeadRow) : null;
+      })();
+
+      if (!lead) {
+        return null;
+      }
+
+      const createdActivity = await (async () => {
+        const ownerId = getOwnerId();
+        const { data, error } = await client
+          .from("activities")
+          .insert({
+            id: activity.id ?? createUuid(),
+            owner_id: ownerId,
+            entity_type: activity.entityType,
+            entity_id: lead.id,
+            kind: activity.kind,
+            actor: activity.actor,
+            message: activity.message,
+            xp_awards: activity.xpAwards,
+            created_at: activity.createdAt ?? nowIso(),
+          })
+          .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
+          .single();
+
+        assertNoError(error, "Failed to create activity.");
+
+        return toActivity(data as ActivityRow);
+      })();
+
+      return { lead, activity: createdActivity };
     },
     updateLeadStatus: async (leadId, status) => {
       const ownerId = getOwnerId();
@@ -1904,6 +2463,232 @@ export const createSupabaseUtopiaRepository = ({
 
       return data ? toAgentRun(data as AgentRunRow) : null;
     },
+    startLeadResearchRun: async ({ leadId, run }) => {
+      const ownerId = getOwnerId();
+      const { data: leadRow, error: leadError } = await client
+        .from("leads")
+        .update({ status: "researching", updated_at: nowIso() })
+        .eq("owner_id", ownerId)
+        .eq("id", leadId)
+        .select(
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+        )
+        .maybeSingle();
+
+      assertNoError(leadError, "Failed to mark lead as researching.");
+
+      if (!leadRow) {
+        return null;
+      }
+
+      const { data: runRow, error: runError } = await client
+        .from("agent_runs")
+        .insert({
+          id: run.id ?? createUuid(),
+          owner_id: ownerId,
+          action: run.action,
+          mode: run.mode,
+          status: run.status,
+          summary: run.summary,
+          target_type: run.targetType,
+          target_id: run.targetId,
+          requires_approval: run.requiresApproval,
+          prompt: run.prompt,
+          error: run.error ?? null,
+          started_at: run.startedAt ?? nowIso(),
+          completed_at: run.completedAt ?? null,
+        })
+        .select(
+          "id, action, mode, status, summary, target_type, target_id, requires_approval, prompt, started_at, completed_at, error",
+        )
+        .single();
+
+      assertNoError(runError, "Failed to create agent run.");
+
+      return { lead: toLead(leadRow as LeadRow), agentRun: toAgentRun(runRow as AgentRunRow) };
+    },
+    completeLeadResearch: async ({
+      leadId,
+      runId,
+      research,
+      leadStatusOnComplete = "qualified",
+      runUpdates,
+      activity,
+      xpAwards,
+    }) => {
+      const ownerId = getOwnerId();
+      const existingLead = await getLeadById(leadId);
+
+      if (!existingLead) {
+        return null;
+      }
+
+      const timestamp = nowIso();
+      const { data: leadRow, error: leadError } = await client
+        .from("leads")
+        .update({
+          status: leadStatusOnComplete,
+          next_action: research.nextAction,
+          research_payload: research,
+          commercial_profile:
+            existingLead.commercial ?? createDefaultCommercialProfile(existingLead.priority),
+          delivery_profile: existingLead.delivery ?? createDefaultDeliveryProfile(),
+          last_researched_at: timestamp,
+          updated_at: timestamp,
+        })
+        .eq("owner_id", ownerId)
+        .eq("id", leadId)
+        .select(
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+        )
+        .single();
+
+      assertNoError(leadError, "Failed to apply lead research.");
+
+      const runPayload: Record<string, unknown> = {
+        completed_at: runUpdates.completedAt ?? timestamp,
+        error: runUpdates.error ?? null,
+      };
+      if (runUpdates.mode) runPayload.mode = runUpdates.mode;
+      if (runUpdates.status) runPayload.status = runUpdates.status;
+      if (typeof runUpdates.summary === "string") runPayload.summary = runUpdates.summary;
+      if (typeof runUpdates.prompt === "string") runPayload.prompt = runUpdates.prompt;
+
+      const { data: runRow, error: runError } = await client
+        .from("agent_runs")
+        .update(runPayload)
+        .eq("owner_id", ownerId)
+        .eq("id", runId)
+        .select(
+          "id, action, mode, status, summary, target_type, target_id, requires_approval, prompt, started_at, completed_at, error",
+        )
+        .single();
+
+      assertNoError(runError, "Failed to update agent run.");
+
+      const { data: activityRow, error: activityError } = await client
+        .from("activities")
+        .insert({
+          id: activity.id ?? createUuid(),
+          owner_id: ownerId,
+          entity_type: activity.entityType,
+          entity_id: leadId,
+          kind: activity.kind,
+          actor: activity.actor,
+          message: activity.message,
+          xp_awards: activity.xpAwards,
+          created_at: activity.createdAt ?? timestamp,
+        })
+        .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
+        .single();
+
+      assertNoError(activityError, "Failed to create activity.");
+
+      const stats = await (async () => {
+        await ensureProgressionRow();
+        const { data: currentRow, error: readError } = await client
+          .from("progression_stats")
+          .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
+          .eq("owner_id", ownerId)
+          .single();
+
+        assertNoError(readError, "Failed to read progression stats before XP award.");
+
+        const current = mapProgressionStatsRow(currentRow as ProgressionStatsRow);
+        const next = {
+          owner_id: ownerId,
+          sales: current.sales + (xpAwards.sales ?? 0),
+          delivery: current.delivery + (xpAwards.delivery ?? 0),
+          content: current.content + (xpAwards.content ?? 0),
+          systems: current.systems + (xpAwards.systems ?? 0),
+          relationships: current.relationships + (xpAwards.relationships ?? 0),
+          revenue: current.revenue + (xpAwards.revenue ?? 0),
+          discipline: current.discipline + (xpAwards.discipline ?? 0),
+        };
+
+        const { data, error } = await client
+          .from("progression_stats")
+          .upsert(next, { onConflict: "owner_id" })
+          .select("owner_id, sales, delivery, content, systems, relationships, revenue, discipline")
+          .single();
+
+        assertNoError(error, "Failed to award XP.");
+
+        return listProgressStatsFromMap(mapProgressionStatsRow(data as ProgressionStatsRow));
+      })();
+
+      return {
+        lead: toLead(leadRow as LeadRow),
+        agentRun: toAgentRun(runRow as AgentRunRow),
+        activity: toActivity(activityRow as ActivityRow),
+        stats,
+      };
+    },
+    failLeadResearch: async ({ leadId, runId, restoreStatus, runUpdates, activity }) => {
+      const ownerId = getOwnerId();
+      const timestamp = nowIso();
+      const { data: leadRow, error: leadError } = await client
+        .from("leads")
+        .update({ status: restoreStatus, updated_at: timestamp })
+        .eq("owner_id", ownerId)
+        .eq("id", leadId)
+        .select(
+          "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+        )
+        .maybeSingle();
+
+      assertNoError(leadError, "Failed to restore lead status after research failure.");
+
+      const runPayload: Record<string, unknown> = {
+        completed_at: runUpdates.completedAt ?? timestamp,
+        error: runUpdates.error ?? null,
+      };
+      if (runUpdates.mode) runPayload.mode = runUpdates.mode;
+      if (runUpdates.status) runPayload.status = runUpdates.status;
+      if (typeof runUpdates.summary === "string") runPayload.summary = runUpdates.summary;
+      if (typeof runUpdates.prompt === "string") runPayload.prompt = runUpdates.prompt;
+
+      const { data: runRow, error: runError } = await client
+        .from("agent_runs")
+        .update(runPayload)
+        .eq("owner_id", ownerId)
+        .eq("id", runId)
+        .select(
+          "id, action, mode, status, summary, target_type, target_id, requires_approval, prompt, started_at, completed_at, error",
+        )
+        .maybeSingle();
+
+      assertNoError(runError, "Failed to update failed agent run.");
+
+      let createdActivity: Activity | undefined;
+
+      if (activity) {
+        const { data, error } = await client
+          .from("activities")
+          .insert({
+            id: activity.id ?? createUuid(),
+            owner_id: ownerId,
+            entity_type: activity.entityType,
+            entity_id: activity.entityId,
+            kind: activity.kind,
+            actor: activity.actor,
+            message: activity.message,
+            xp_awards: activity.xpAwards,
+            created_at: activity.createdAt ?? timestamp,
+          })
+          .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
+          .single();
+
+        assertNoError(error, "Failed to create activity.");
+        createdActivity = toActivity(data as ActivityRow);
+      }
+
+      return {
+        lead: leadRow ? toLead(leadRow as LeadRow) : null,
+        agentRun: runRow ? toAgentRun(runRow as AgentRunRow) : null,
+        activity: createdActivity,
+      };
+    },
     listApprovals: async () =>
       [...(await loadState()).approvals].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     createApproval: async (input) => {
@@ -2009,6 +2794,106 @@ export const createSupabaseUtopiaRepository = ({
       const updatedLead = updatedLeadRow ? toLead(updatedLeadRow as LeadRow) : lead;
 
       return { client: toClient(clientRow as ClientRow), lead: updatedLead };
+    },
+    promoteLeadWithActivity: async ({ leadId, promotion, activity }) => {
+      const promoted = await (async () => {
+        const ownerId = getOwnerId();
+        const lead = await getLeadById(leadId);
+
+        if (!lead) {
+          return null;
+        }
+
+        const { data: existingClientRow, error: existingError } = await client
+          .from("clients")
+          .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
+          .eq("owner_id", ownerId)
+          .eq("lead_id", leadId)
+          .maybeSingle();
+
+        assertNoError(existingError, "Failed to inspect existing client.");
+
+        const existingClient = existingClientRow ? toClient(existingClientRow as ClientRow) : null;
+        const auditNotes = [
+          ...(existingClient?.auditNotes ?? []),
+          promotion?.auditNote ??
+            lead.research?.overview ??
+            lead.notes ??
+            "Lead promoted into client delivery.",
+        ];
+        const deliveryRoadmap = [
+          ...(existingClient?.deliveryRoadmap ?? []),
+          promotion?.roadmapItem ??
+            lead.delivery?.nextDeliverable ??
+            lead.research?.recommendedOffer ??
+            "Confirm delivery roadmap.",
+        ];
+        const payload = {
+          id: existingClient?.id ?? createUuid(),
+          owner_id: ownerId,
+          lead_id: leadId,
+          company: lead.company,
+          status: existingClient?.status ?? "active",
+          audit_notes: auditNotes,
+          delivery_roadmap: deliveryRoadmap,
+        };
+        const { data: clientRow, error: clientError } = await client
+          .from("clients")
+          .upsert(payload, { onConflict: "id" })
+          .select("id, lead_id, company, status, audit_notes, delivery_roadmap, created_at, updated_at")
+          .single();
+
+        assertNoError(clientError, "Failed to promote lead to client.");
+
+        const { data: updatedLeadRow, error: leadError } = await client
+          .from("leads")
+          .update({
+            status: lead.status === "won" ? "won" : "proposal",
+            delivery_profile: lead.delivery ?? createDefaultDeliveryProfile(),
+          })
+          .eq("owner_id", ownerId)
+          .eq("id", leadId)
+          .select(
+            "id, name, company, website, source, priority, status, notes, next_action, research_payload, commercial_profile, delivery_profile, last_researched_at, created_at, updated_at",
+          )
+          .maybeSingle();
+
+        assertNoError(leadError, "Failed to update promoted lead.");
+
+        return {
+          client: toClient(clientRow as ClientRow),
+          lead: updatedLeadRow ? toLead(updatedLeadRow as LeadRow) : lead,
+        };
+      })();
+
+      if (!promoted) {
+        return null;
+      }
+
+      const createdActivity = await (async () => {
+        const ownerId = getOwnerId();
+        const { data, error } = await client
+          .from("activities")
+          .insert({
+            id: activity.id ?? createUuid(),
+            owner_id: ownerId,
+            entity_type: activity.entityType,
+            entity_id: promoted.lead.id,
+            kind: activity.kind,
+            actor: activity.actor,
+            message: activity.message,
+            xp_awards: activity.xpAwards,
+            created_at: activity.createdAt ?? nowIso(),
+          })
+          .select("id, entity_type, entity_id, kind, actor, message, xp_awards, created_at")
+          .single();
+
+        assertNoError(error, "Failed to create activity.");
+
+        return toActivity(data as ActivityRow);
+      })();
+
+      return { ...promoted, activity: createdActivity };
     },
     updateClient: async (clientId, input) => {
       const ownerId = getOwnerId();

@@ -4,7 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-import { api } from "@/lib/api";
+import { leadsApi } from "@/domains/leads/api";
+import { refetchAfterLeadCreate } from "@/lib/query/refetchers";
 import { createLeadInputSchema } from "@utopia/schemas";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,12 +57,9 @@ export function CreateLeadDialog({
   });
 
   const createLeadMutation = useMutation({
-    mutationFn: api.createLead,
+    mutationFn: leadsApi.create,
     onSuccess: async ({ lead }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["leads"] }),
-      ]);
+      await refetchAfterLeadCreate(queryClient);
       toast.success(`Lead created for ${lead.company}.`);
       reset();
       onOpenChange(false);
@@ -209,4 +207,3 @@ export function CreateLeadDialog({
     </Dialog>
   );
 }
-

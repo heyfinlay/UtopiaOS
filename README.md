@@ -10,6 +10,19 @@ Utopia Command is a monorepo for a tactical business operating system built arou
 
 The current product slice covers lead capture, structured lead research, activity logging, XP progression, approvals, runtime visibility, and agent safety controls.
 
+The current architecture is organized around explicit product domains:
+
+- Identity
+- Leads / CRM
+- Clients
+- Agent Runs
+- OpenClaw Runtime
+- Approvals
+- Activity / Audit
+- Progression / XP
+- Templates / Vault
+- Dashboard
+
 ## What Works
 
 - Command center dashboard with live mission, pipeline, activity, and stat views
@@ -73,7 +86,7 @@ If `OPENCLAW_COMMAND` is configured and fails, the run is marked failed. The API
 
 See [`.env.example`](/Users/finlaysturzaker/Documents/UtopiaOS/.env.example).
 
-Important variables:
+Required variables:
 
 - `VITE_API_URL`: web app API base URL
 - `PORT`: API port
@@ -105,7 +118,8 @@ In short:
 - the prompt is piped into `OPENCLAW_COMMAND` when configured
 - stdout must be valid JSON
 - the JSON is schema-validated before persistence
-- command failures produce failed agent runs instead of mock fallback
+- configured command failures produce failed agent runs instead of mock fallback
+- lead status is restored when research fails
 
 ## Commands
 
@@ -129,3 +143,4 @@ See [`docs/VERCEL_DEPLOYMENT.md`](/Users/finlaysturzaker/Documents/UtopiaOS/docs
 - Vercel deployment: [docs/VERCEL_DEPLOYMENT.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/VERCEL_DEPLOYMENT.md)
 - Auth setup: [AUTH_SETUP.md](/Users/finlaysturzaker/Documents/UtopiaOS/AUTH_SETUP.md)
 - Agent integration: [docs/AGENT_INTEGRATION.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/AGENT_INTEGRATION.md)
+- Invariants: [docs/UTOPIA_OS_INVARIANTS.md](/Users/finlaysturzaker/Documents/UtopiaOS/docs/UTOPIA_OS_INVARIANTS.md)
