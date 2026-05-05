@@ -145,7 +145,6 @@ describe("createUtopiaRepository", () => {
         website: "https://orbit.systems",
         source: "Inbound form",
         priority: "critical",
-        status: "new",
       }),
     );
     expect(calls.select).toHaveBeenCalledWith(expect.stringContaining("commercial_profile"));

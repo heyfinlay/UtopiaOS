@@ -2168,12 +2168,7 @@ export const createSupabaseUtopiaRepository = ({
       website: input.website ?? null,
       source: input.source ?? null,
       priority: input.priority,
-      status: "new" as const,
       notes: input.notes ?? null,
-      next_action: "Run AI research to sharpen the first outreach angle.",
-      research_payload: {},
-      commercial_profile: createDefaultCommercialProfile(input.priority),
-      delivery_profile: createDefaultDeliveryProfile(),
     };
 
     logLeadCreate("lead.create.insert.start", {
