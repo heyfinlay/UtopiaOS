@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @utopia/api --filter @utopia/web dev",
     "build": "pnpm -r --if-present build",
-    "smoke:vercel-entrypoint": "pnpm --filter @utopia/api build && node scripts/smoke-vercel-entrypoint.mjs",
+    "smoke:vercel-entrypoint": "pnpm --filter @utopia/api... build && node scripts/smoke-vercel-entrypoint.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
     "test": "pnpm -r --if-present test"

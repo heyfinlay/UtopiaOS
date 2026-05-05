@@ -312,6 +312,10 @@ export const withAbortableTimeout = async <T>(
   });
 };
 
+const isSupabaseTimeoutError = (error: unknown) =>
+  error instanceof Error &&
+  error.message.startsWith("Supabase operation timed out:");
+
 const logLeadCreate = (
   event: string,
   metadata: Record<string, string | number | boolean | undefined> = {},
@@ -2041,11 +2045,15 @@ export const createSupabaseUtopiaRepository = ({
     };
   };
 
-  const ensureProgressionRow = async () => {
+  const ensureProgressionRow = async (timeoutMs?: number) => {
     const ownerId = getOwnerId();
-    const { error } = await client
+    const query = client
       .from("progression_stats")
       .upsert({ owner_id: ownerId }, { onConflict: "owner_id", ignoreDuplicates: true });
+    const { error } =
+      typeof timeoutMs === "number"
+        ? await withAbortableTimeout("progression_stats.ensure", query, timeoutMs)
+        : await query;
 
     assertNoError(error, "Failed to ensure progression stats row.");
   };
@@ -2230,11 +2238,7 @@ export const createSupabaseUtopiaRepository = ({
       try {
         const stats = await (async () => {
           const ownerId = getOwnerId();
-          await withTimeout(
-            "progression_stats.ensure",
-            ensureProgressionRow(),
-            optionalSideEffectTimeoutMs,
-          );
+          await ensureProgressionRow(optionalSideEffectTimeoutMs);
           const { data: currentRow, error: readError } = await withTimeout(
             "progression_stats.read",
             client
@@ -2259,7 +2263,7 @@ export const createSupabaseUtopiaRepository = ({
             discipline: current.discipline + (xpAwards.discipline ?? 0),
           };
 
-          const { data, error } = await withTimeout(
+          const { data, error } = await withAbortableTimeout(
             "progression_stats.upsert",
             client
               .from("progression_stats")
@@ -2275,7 +2279,7 @@ export const createSupabaseUtopiaRepository = ({
         })();
         const createdActivity = await (async () => {
           const ownerId = getOwnerId();
-          const { data, error } = await withTimeout(
+          const { data, error } = await withAbortableTimeout(
             "activities.insert",
             client
               .from("activities")
@@ -2310,6 +2314,11 @@ export const createSupabaseUtopiaRepository = ({
         logLeadCreateSideEffectFailure("lead.create.side_effects.failed", error, {
           mode: "supabase",
         });
+
+        if (isSupabaseTimeoutError(error)) {
+          throw error;
+        }
+
         logLeadCreate("lead.create.complete", {
           mode: "supabase",
           withSideEffects: true,

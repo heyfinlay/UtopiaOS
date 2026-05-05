@@ -134,6 +134,8 @@ const runtimeEnv =
     : {};
 const createRequestId = () => globalThis.crypto.randomUUID();
 const defaultOpenClawTimeoutMs = 45_000;
+const leadCreationFailureMessage = "Unable to create lead right now.";
+const leadImportFailureMessage = "Unable to import leads right now.";
 
 const getApiLogContext = (context: Context<AppContext>) => ({
   requestId: context.get("requestId"),
@@ -152,6 +154,18 @@ const logApiPhase = (
     ...getApiLogContext(context),
     ...extra,
   });
+};
+
+const getClientPersistenceFailureMessage = (
+  error: unknown,
+  isDevelopment: boolean,
+  productionMessage: string,
+) => {
+  if (isDevelopment && error instanceof Error) {
+    return error.message;
+  }
+
+  return productionMessage;
 };
 
 const getCommandPreview = (command?: string) => {
@@ -263,6 +277,11 @@ export const createApp = (
       return verifySupabaseUser(supabaseUrl, serviceRoleKey, accessToken);
     });
   const authRequired = repository.mode === "supabase";
+  const debugSecret = runtimeEnv.DEBUG_ROUTE_SECRET?.trim() ?? "";
+  const debugRoutesEnabled =
+    !isDevelopment
+      ? false
+      : runtimeEnv.ENABLE_DEBUG_ROUTES === "true" && debugSecret.length > 0;
 
   console.info("api.app.created", {
     fingerprint: API_BUILD_FINGERPRINT,
@@ -477,26 +496,32 @@ export const createApp = (
     });
   });
 
-  app.post("/api/debug/leads-insert", async (context) => {
-    const scopedRepository = getRepository(context);
-    const debugInput = createLeadInputSchema.parse({
-      name: "Debug Lead",
-      company: "Utopia Runtime Debug",
-      source: "debug route",
-      priority: "normal",
-    });
-    const lead = await scopedRepository.createLead(debugInput);
+  if (debugRoutesEnabled) {
+    app.post("/api/debug/leads-insert", async (context) => {
+      if (context.req.header("x-debug-secret") !== debugSecret) {
+        return context.json({ error: "API route not found." }, 404);
+      }
 
-    return context.json(
-      {
-        ok: true,
-        apiBuildFingerprint: API_BUILD_FINGERPRINT,
-        requestId: context.get("requestId"),
-        leadId: lead.id,
-      },
-      201,
-    );
-  });
+      const scopedRepository = getRepository(context);
+      const debugInput = createLeadInputSchema.parse({
+        name: "Debug Lead",
+        company: "Utopia Runtime Debug",
+        source: "debug route",
+        priority: "normal",
+      });
+      const lead = await scopedRepository.createLead(debugInput);
+
+      return context.json(
+        {
+          ok: true,
+          apiBuildFingerprint: API_BUILD_FINGERPRINT,
+          requestId: context.get("requestId"),
+          leadId: lead.id,
+        },
+        201,
+      );
+    });
+  }
 
   app.get(
     "/api/leads/:leadId",
@@ -558,10 +583,11 @@ export const createApp = (
         return context.json(
           {
             error: "Lead creation failed.",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Unknown lead persistence failure.",
+            message: getClientPersistenceFailureMessage(
+              error,
+              isDevelopment,
+              leadCreationFailureMessage,
+            ),
             requestId: context.get("requestId"),
             apiBuildFingerprint: API_BUILD_FINGERPRINT,
           },
@@ -595,12 +621,21 @@ export const createApp = (
         try {
           leads.push(await scopedRepository.createLead(input));
         } catch (error) {
+          console.error("api.leads.import.failed", {
+            ...getApiLogContext(context),
+            rowNumber: index + 1,
+            importedCount: leads.length,
+            error: error instanceof Error ? error.message : String(error),
+          });
+
           return context.json(
             {
               error: "Lead import failed.",
-              message: `Lead import failed on row ${index + 1} after ${leads.length} persisted lead${leads.length === 1 ? "" : "s"}. ${
-                error instanceof Error ? error.message : "Unknown persistence failure."
-              }`,
+              message: `Lead import failed on row ${index + 1} after ${leads.length} persisted lead${leads.length === 1 ? "" : "s"}. ${getClientPersistenceFailureMessage(
+                error,
+                isDevelopment,
+                leadImportFailureMessage,
+              )}`,
               importedCount: leads.length,
               requestId: context.get("requestId"),
             },

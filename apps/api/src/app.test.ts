@@ -11,6 +11,7 @@ import { createApp } from "./app";
 describe("createApp", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   const createSupabaseModeRepository = (): UtopiaRepository => {
@@ -403,6 +404,158 @@ describe("createApp", () => {
       requestId: "request-123",
       apiBuildFingerprint: "lead-timeout-debug-2026-05-02-v2",
     });
+  });
+
+  it("returns a safe lead creation error message in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repository = createSupabaseModeRepository();
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async () => ({ id: "user-123" })),
+      createRepositoryForOwner: vi.fn(() => ({
+        ...repository,
+        createLead: vi.fn(async () => {
+          throw new Error("violates row-level security policy for table leads");
+        }),
+        mode: "supabase" as const,
+      })),
+    });
+
+    const response = await app.request("/api/leads", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token-123",
+        "x-request-id": "request-123",
+      },
+      body: JSON.stringify({
+        name: "Nina",
+        company: "Cinder Lane",
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "Lead creation failed.",
+      message: "Unable to create lead right now.",
+      requestId: "request-123",
+    });
+    expect(JSON.stringify(payload)).not.toContain("row-level security");
+    expect(console.error).toHaveBeenCalledWith(
+      "api.leads.post.failed",
+      expect.objectContaining({
+        requestId: "request-123",
+        error: "violates row-level security policy for table leads",
+      }),
+    );
+  });
+
+  it("does not register debug lead insert routes by default", async () => {
+    const repository = createUtopiaRepository();
+    const app = createApp(repository);
+
+    const response = await app.request("/api/debug/leads-insert", {
+      method: "POST",
+      headers: {
+        "x-debug-secret": "debug-secret",
+      },
+    });
+
+    expect(response.status).toBe(404);
+    await expect(repository.listLeads()).resolves.not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          company: "Utopia Runtime Debug",
+        }),
+      ]),
+    );
+  });
+
+  it("requires an explicit debug flag and secret before debug lead inserts can run", async () => {
+    vi.stubEnv("ENABLE_DEBUG_ROUTES", "true");
+    vi.stubEnv("DEBUG_ROUTE_SECRET", "debug-secret");
+    const repository = createUtopiaRepository();
+    const app = createApp(repository);
+
+    const missingSecretResponse = await app.request("/api/debug/leads-insert", {
+      method: "POST",
+    });
+    expect(missingSecretResponse.status).toBe(404);
+
+    const response = await app.request("/api/debug/leads-insert", {
+      method: "POST",
+      headers: {
+        "x-debug-secret": "debug-secret",
+      },
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.ok).toBe(true);
+    await expect(repository.listLeads()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          company: "Utopia Runtime Debug",
+        }),
+      ]),
+    );
+  });
+
+  it("returns safe lead import persistence errors in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repository = {
+      ...createUtopiaRepository(),
+      createLead: vi.fn(async () => {
+        throw new Error("duplicate key value violates unique constraint leads_owner_id_key");
+      }),
+    };
+    const app = createApp(repository);
+
+    const response = await app.request("/api/leads/import", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "request-123",
+      },
+      body: JSON.stringify({
+        leads: [
+          {
+            name: "Ari Patel",
+            company: "Ledger Lane",
+            priority: "normal",
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "Lead import failed.",
+      message: "Lead import failed on row 1 after 0 persisted leads. Unable to import leads right now.",
+      importedCount: 0,
+      requestId: "request-123",
+    });
+    expect(JSON.stringify(payload)).not.toContain("unique constraint");
+    expect(console.error).toHaveBeenCalledWith(
+      "api.leads.import.failed",
+      expect.objectContaining({
+        requestId: "request-123",
+        rowNumber: 1,
+        importedCount: 0,
+        error: "duplicate key value violates unique constraint leads_owner_id_key",
+      }),
+    );
   });
 
   it("returns a valid empty dashboard state", async () => {

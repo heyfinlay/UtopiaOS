@@ -8,7 +8,7 @@ const workspacePackages = [
 ] as const;
 
 describe("workspace runtime exports", () => {
-  it("point at built dist files instead of TypeScript source", () => {
+  it("use dist by default and source only for explicit development conditions", () => {
     for (const packagePath of workspacePackages) {
       const manifest = JSON.parse(
         readFileSync(new URL(packagePath, import.meta.url), "utf8"),
@@ -16,16 +16,23 @@ describe("workspace runtime exports", () => {
         main?: string;
         module?: string;
         types?: string;
-        exports?: { ".": { import?: string; types?: string; default?: string } };
+        exports?: {
+          ".": {
+            development?: string;
+            import?: string;
+            types?: string;
+            default?: string;
+          };
+        };
       };
 
       expect(manifest.main).toBe("./dist/index.js");
       expect(manifest.module).toBe("./dist/index.js");
       expect(manifest.types).toBe("./dist/index.d.ts");
+      expect(manifest.exports?.["."].development).toBe("./src/index.ts");
       expect(manifest.exports?.["."].import).toBe("./dist/index.js");
       expect(manifest.exports?.["."].default).toBe("./dist/index.js");
       expect(manifest.exports?.["."].types).toBe("./dist/index.d.ts");
-      expect(JSON.stringify(manifest.exports)).not.toContain("./src/index.ts");
     }
   });
 });
