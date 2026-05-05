@@ -33,6 +33,10 @@ export type LeadsResponse = {
 };
 
 type AccessTokenProvider = () => Promise<string | null> | string | null;
+type ApiRequestInit = RequestInit & {
+  timeoutMs?: number;
+  timeoutMessage?: string;
+};
 
 let accessTokenProvider: AccessTokenProvider | null = null;
 
@@ -111,24 +115,56 @@ const parseResponseBody = async (response: Response) => {
   }
 };
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+const isAbortFromTimeout = (
+  error: unknown,
+  timeoutController: AbortController | null,
+) =>
+  Boolean(
+    timeoutController?.signal.aborted &&
+      error instanceof Error &&
+      error.name === "AbortError",
+  );
+
+const clearRequestTimeout = (timeout?: ReturnType<typeof globalThis.setTimeout>) => {
+  if (timeout) {
+    globalThis.clearTimeout(timeout);
+  }
+};
+
+export async function request<T>(path: string, init?: ApiRequestInit): Promise<T> {
   const method = init?.method ?? "GET";
   const accessToken = accessTokenProvider ? await accessTokenProvider() : null;
+  const { timeoutMs, timeoutMessage, ...fetchInit } = init ?? {};
+  const timeoutController =
+    typeof timeoutMs === "number" && timeoutMs > 0 ? new AbortController() : null;
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
   let response: Response;
 
   try {
+    if (timeoutController) {
+      timeout = globalThis.setTimeout(() => {
+        timeoutController.abort();
+      }, timeoutMs);
+    }
+
     response = await fetch(`${API_BASE_URL}${path}`, {
       headers: {
         "content-type": "application/json",
         ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-        ...(init?.headers ?? {}),
+        ...(fetchInit.headers ?? {}),
       },
-      ...init,
+      ...fetchInit,
+      signal: timeoutController?.signal ?? fetchInit.signal,
     });
   } catch (error) {
+    const abortedByTimeout = isAbortFromTimeout(error, timeoutController);
+    clearRequestTimeout(timeout);
+
     throw new ApiError({
       message:
-        error instanceof Error
+        abortedByTimeout
+          ? (timeoutMessage ?? "Request timed out. Please try again.")
+          : error instanceof Error
           ? `The backend was unreachable: ${error.message}`
           : "The backend was unreachable.",
       status: 0,
@@ -137,7 +173,29 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   }
 
-  const payload = await parseResponseBody(response);
+  let payload: unknown;
+
+  try {
+    payload = await parseResponseBody(response);
+  } catch (error) {
+    const requestId = response.headers.get("x-request-id") ?? undefined;
+    const abortedByTimeout = isAbortFromTimeout(error, timeoutController);
+
+    throw new ApiError({
+      message: abortedByTimeout
+        ? (timeoutMessage ?? "Request timed out. Please try again.")
+        : error instanceof Error
+          ? `The backend response could not be read: ${error.message}`
+          : "The backend response could not be read.",
+      status: response.status,
+      method,
+      path,
+      requestId,
+    });
+  } finally {
+    clearRequestTimeout(timeout);
+  }
+
   const objectPayload = toSafeObject(payload);
   const requestId =
     response.headers.get("x-request-id") ??
@@ -181,6 +239,8 @@ export const api = {
   createLead: (payload: CreateLeadInput) =>
     request<CreateLeadResponse>("/api/leads", {
       method: "POST",
+      timeoutMs: 15_000,
+      timeoutMessage: "Lead deployment timed out. Please try again.",
       body: JSON.stringify(payload),
     }),
   importLeads: (payload: ImportLeadsInput) =>

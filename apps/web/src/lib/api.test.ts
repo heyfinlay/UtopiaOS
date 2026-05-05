@@ -5,6 +5,7 @@ import { ApiError, api, API_UNAUTHORIZED_EVENT, setAccessTokenProvider } from ".
 describe("api client", () => {
   afterEach(() => {
     setAccessTokenProvider(null);
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -74,5 +75,107 @@ describe("api client", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener(API_UNAUTHORIZED_EVENT, listener);
+  });
+
+  it("sends lead creation as JSON with an explicit timeout", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ lead: { id: "lead-1" } }), {
+        status: 201,
+        headers: {
+          "content-type": "application/json",
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.createLead({
+      name: "Nina",
+      company: "Cinder Lane",
+      website: "https://cinderlane.com",
+      priority: "normal",
+      source: "Referral",
+      notes: "Wants faster onboarding",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/leads"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          name: "Nina",
+          company: "Cinder Lane",
+          website: "https://cinderlane.com",
+          priority: "normal",
+          source: "Referral",
+          notes: "Wants faster onboarding",
+        }),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("aborts lead creation when deployment times out", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const error = new Error("The operation was aborted.");
+            error.name = "AbortError";
+            reject(error);
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const requestPromise = api.createLead({
+      name: "Nina",
+      company: "Cinder Lane",
+      priority: "normal",
+    });
+    const expectation = expect(requestPromise).rejects.toMatchObject({
+      status: 0,
+      message: "Lead deployment timed out. Please try again.",
+    });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await expectation;
+  });
+
+  it("surfaces lead creation error responses with request id", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            error: "Unable to create lead right now.",
+            requestId: "req-lead-500",
+          }),
+          {
+            status: 500,
+            headers: {
+              "content-type": "application/json",
+              "x-request-id": "req-lead-500",
+            },
+          },
+        ),
+      ),
+    );
+
+    await expect(
+      api.createLead({
+        name: "Nina",
+        company: "Cinder Lane",
+        priority: "normal",
+      }),
+    ).rejects.toMatchObject({
+      status: 500,
+      requestId: "req-lead-500",
+      message: "Unable to create lead right now.",
+    });
   });
 });

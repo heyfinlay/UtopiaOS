@@ -6,7 +6,7 @@ import {
   type UtopiaRepository,
 } from "@utopia/db";
 
-import { createApp } from "./app";
+import { createApp, parseJsonBodyWithTimeout } from "./app";
 
 describe("createApp", () => {
   afterEach(() => {
@@ -359,6 +359,82 @@ describe("createApp", () => {
     expect(payload.lead.company).toBe("Cinder Lane");
     expect(payload.apiBuildFingerprint).toBe("lead-timeout-debug-2026-05-02-v2");
     await expect(ownerRepository.listLeads()).resolves.toHaveLength(1);
+  });
+
+  it("returns 400 when lead creation receives invalid JSON", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repository = createUtopiaRepository();
+    const app = createApp(repository);
+
+    const response = await app.request("/api/leads", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "request-123",
+      },
+      body: "{",
+    });
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "Invalid lead payload.",
+      requestId: "request-123",
+    });
+    expect(console.error).toHaveBeenCalledWith(
+      "api.leads.post.body_parse.failed",
+      expect.objectContaining({
+        requestId: "request-123",
+        reason: "invalid_json",
+      }),
+    );
+  });
+
+  it("returns validation issues for missing lead fields outside production", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const repository = createUtopiaRepository();
+    const initialLeads = await repository.listLeads();
+    const app = createApp(repository);
+
+    const response = await app.request("/api/leads", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "request-123",
+      },
+      body: JSON.stringify({
+        name: "Nina",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "Invalid lead details.",
+      requestId: "request-123",
+    });
+    expect(payload.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "company",
+        }),
+      ]),
+    );
+    await expect(repository.listLeads()).resolves.toHaveLength(initialLeads.length);
+  });
+
+  it("times out slow lead request body parsing", async () => {
+    const result = await parseJsonBodyWithTimeout(
+      {
+        json: async () => new Promise(() => undefined),
+      },
+      1,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "timeout",
+    });
   });
 
   it("returns JSON errors with the request id when lead creation fails", async () => {

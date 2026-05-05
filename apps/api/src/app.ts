@@ -134,8 +134,17 @@ const runtimeEnv =
     : {};
 const createRequestId = () => globalThis.crypto.randomUUID();
 const defaultOpenClawTimeoutMs = 45_000;
+const leadBodyParseTimeoutMs = 5_000;
 const leadCreationFailureMessage = "Unable to create lead right now.";
 const leadImportFailureMessage = "Unable to import leads right now.";
+
+type JsonBodyReader = {
+  json: () => Promise<unknown>;
+};
+
+type JsonBodyParseResult =
+  | { ok: true; value: unknown }
+  | { ok: false; reason: "invalid_json" | "timeout"; error: unknown };
 
 const getApiLogContext = (context: Context<AppContext>) => ({
   requestId: context.get("requestId"),
@@ -166,6 +175,46 @@ const getClientPersistenceFailureMessage = (
   }
 
   return productionMessage;
+};
+
+export const parseJsonBodyWithTimeout = async (
+  bodyReader: JsonBodyReader,
+  timeoutMs = leadBodyParseTimeoutMs,
+): Promise<JsonBodyParseResult> => {
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+
+  const bodyPromise: Promise<JsonBodyParseResult> = (async () => {
+    try {
+      return {
+        ok: true,
+        value: await bodyReader.json(),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "invalid_json",
+        error,
+      };
+    }
+  })();
+
+  const timeoutPromise = new Promise<JsonBodyParseResult>((resolve) => {
+    timeout = globalThis.setTimeout(() => {
+      resolve({
+        ok: false,
+        reason: "timeout",
+        error: new Error(`Request JSON body parsing timed out after ${timeoutMs}ms.`),
+      });
+    }, timeoutMs);
+  });
+
+  const result = await Promise.race([bodyPromise, timeoutPromise]);
+
+  if (timeout) {
+    globalThis.clearTimeout(timeout);
+  }
+
+  return result;
 };
 
 const getCommandPreview = (command?: string) => {
@@ -540,43 +589,92 @@ export const createApp = (
 
   app.post(
     "/api/leads",
-    async (context, next) => {
-      logApiPhase("api.leads.post.enter", context);
-      await next();
-    },
-    zValidator("json", createLeadInputSchema, (result, context) => {
-      if (!result.success) {
-        const appContext = context as unknown as Context<AppContext>;
+    async (context) => {
+      const scopedRepository = getRepository(context);
+      let lead;
+
+      logApiPhase("api.leads.post.enter", context, {
+        contentType: context.req.header("content-type"),
+        contentLength: context.req.header("content-length"),
+      });
+
+      logApiPhase("api.leads.post.body_parse.start", context, {
+        timeoutMs: leadBodyParseTimeoutMs,
+      });
+      const parsedBody = await parseJsonBodyWithTimeout(
+        context.req,
+        leadBodyParseTimeoutMs,
+      );
+
+      if (!parsedBody.ok) {
+        console.error("api.leads.post.body_parse.failed", {
+          ...getApiLogContext(context),
+          reason: parsedBody.reason,
+          error:
+            parsedBody.error instanceof Error
+              ? parsedBody.error.message
+              : String(parsedBody.error),
+        });
+
         console.error("api.leads.post.failed", {
-          ...getApiLogContext(appContext),
-          error: "Invalid lead payload.",
+          ...getApiLogContext(context),
+          phase: "body_parse",
+          reason: parsedBody.reason,
         });
 
         return context.json(
           {
             error: "Invalid lead payload.",
-            message: "Lead creation payload failed validation.",
-            requestId: appContext.get("requestId"),
+            requestId: context.get("requestId"),
             apiBuildFingerprint: API_BUILD_FINGERPRINT,
+          },
+          parsedBody.reason === "timeout" ? 408 : 400,
+        );
+      }
+
+      logApiPhase("api.leads.post.body_parse.success", context);
+      logApiPhase("api.leads.post.validation.start", context);
+      const validation = createLeadInputSchema.safeParse(parsedBody.value);
+
+      if (!validation.success) {
+        const issues = validation.error.issues.map((issue) => ({
+          path: issue.path.map(String).join("."),
+          message: issue.message,
+          code: issue.code,
+        }));
+
+        console.error("api.leads.post.validation.failed", {
+          ...getApiLogContext(context),
+          issues,
+        });
+
+        console.error("api.leads.post.failed", {
+          ...getApiLogContext(context),
+          phase: "validation",
+          issueCount: issues.length,
+        });
+
+        return context.json(
+          {
+            error: "Invalid lead details.",
+            requestId: context.get("requestId"),
+            apiBuildFingerprint: API_BUILD_FINGERPRINT,
+            ...(isDevelopment ? { issues } : {}),
           },
           400,
         );
       }
 
-      return undefined;
-    }),
-    async (context) => {
-      const scopedRepository = getRepository(context);
-      let lead;
+      logApiPhase("api.leads.post.validation.success", context);
 
       try {
-        logApiPhase("api.leads.post.validated", context);
         logApiPhase("api.leads.createLead.before", context);
-        lead = await scopedRepository.createLead(context.req.valid("json"));
+        lead = await scopedRepository.createLead(validation.data);
         logApiPhase("api.leads.createLead.after", context);
       } catch (error) {
         console.error("api.leads.post.failed", {
           ...getApiLogContext(context),
+          phase: "createLead",
           error: error instanceof Error ? error.message : String(error),
         });
 
