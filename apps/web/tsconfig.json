@@ -3,7 +3,8 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@utopia/schemas": ["../../packages/schemas/src/index.ts"]
     }
   },
   "files": [],

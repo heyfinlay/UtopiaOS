@@ -74,6 +74,27 @@ const createLeadsOnlyClient = () => {
   };
 };
 
+const createAbortableQuery = <T>(resolveValue?: T) => {
+  let aborted = false;
+  const query = {
+    abortSignal: vi.fn((signal: AbortSignal) => {
+      signal.addEventListener("abort", () => {
+        aborted = true;
+      });
+
+      return typeof resolveValue === "undefined"
+        ? new Promise<T>(() => undefined)
+        : Promise.resolve(resolveValue);
+    }),
+    then: vi.fn(),
+  };
+
+  return {
+    query,
+    wasAborted: () => aborted,
+  };
+};
+
 describe("createUtopiaRepository", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -124,7 +145,6 @@ describe("createUtopiaRepository", () => {
         website: "https://orbit.systems",
         source: "Inbound form",
         priority: "critical",
-        status: "new",
       }),
     );
     expect(calls.select).toHaveBeenCalledWith(expect.stringContaining("commercial_profile"));
@@ -199,22 +219,100 @@ describe("createUtopiaRepository", () => {
   });
 
   it("aborts slow Supabase operations when timing out", async () => {
-    let aborted = false;
-    const query = {
-      abortSignal: vi.fn((nextSignal: AbortSignal) => {
-        nextSignal.addEventListener("abort", () => {
-          aborted = true;
-        });
-        return new Promise(() => undefined);
-      }),
-      then: vi.fn(),
-    };
+    const { query, wasAborted } = createAbortableQuery();
 
     await expect(withAbortableTimeout("leads.insert", query, 1)).rejects.toThrow(
       "Supabase operation timed out: leads.insert",
     );
     expect(query.abortSignal).toHaveBeenCalledTimes(1);
-    expect(aborted).toBe(true);
+    expect(wasAborted()).toBe(true);
+  });
+
+  it("aborts timed-out Supabase side-effect writes instead of returning fake success", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { client: leadsClient } = createLeadsOnlyClient();
+    const ensureQuery = createAbortableQuery({ data: null, error: null });
+    const timedOutStatsWrite = createAbortableQuery();
+    let progressionUpsertCount = 0;
+    const activitiesFrom = vi.fn();
+    const from = vi.fn((table: string) => {
+      if (table === "leads") {
+        return leadsClient.from(table);
+      }
+
+      if (table === "progression_stats") {
+        return {
+          upsert: vi.fn(() => {
+            progressionUpsertCount += 1;
+            return progressionUpsertCount === 1
+              ? ensureQuery.query
+              : {
+                  select: vi.fn(() => ({
+                    single: vi.fn(() => timedOutStatsWrite.query),
+                  })),
+                };
+          }),
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn(async () => ({
+                data: {
+                  owner_id: ownerId,
+                  sales: 0,
+                  delivery: 0,
+                  content: 0,
+                  systems: 0,
+                  relationships: 0,
+                  revenue: 0,
+                  discipline: 0,
+                },
+                error: null,
+              })),
+            })),
+          })),
+        };
+      }
+
+      if (table === "activities") {
+        activitiesFrom(table);
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+    const repository = createSupabaseUtopiaRepository({
+      client: { from } as never,
+      ownerId,
+    });
+
+    await expect(
+      repository.createLeadWithActivity({
+        lead: {
+          name: "Ava",
+          company: "Orbit Systems",
+          priority: "critical",
+        },
+        activity: {
+          entityType: "lead",
+          entityId: "pending-lead",
+          kind: "lead.created",
+          actor: "human",
+          message: "Lead created.",
+          xpAwards: {
+            sales: 0,
+            delivery: 0,
+            content: 0,
+            systems: 0,
+            relationships: 0,
+            revenue: 0,
+            discipline: 0,
+          },
+        },
+        xpAwards: { sales: 1 },
+      }),
+    ).rejects.toThrow("Supabase operation timed out: progression_stats.upsert");
+    expect(timedOutStatsWrite.query.abortSignal).toHaveBeenCalledTimes(1);
+    expect(timedOutStatsWrite.wasAborted()).toBe(true);
+    expect(activitiesFrom).not.toHaveBeenCalled();
   });
 
   it("awards xp and stores research results", async () => {

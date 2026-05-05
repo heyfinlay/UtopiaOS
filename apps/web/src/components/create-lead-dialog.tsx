@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { leadsApi } from "@/domains/leads/api";
+import { ApiError } from "@/lib/api";
 import { refetchAfterLeadCreate } from "@/lib/query/refetchers";
 import { createLeadInputSchema } from "@utopia/schemas";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ export function CreateLeadDialog({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [formError, setFormError] = useState<string | null>(null);
+  const [deploying, setDeploying] = useState(false);
   const {
     register,
     handleSubmit,
@@ -65,10 +67,18 @@ export function CreateLeadDialog({
       onOpenChange(false);
       startTransition(() => navigate(`/leads/${lead.id}`));
     },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Lead creation failed.");
-    },
   });
+
+  const getDeployErrorMessage = (error: unknown) => {
+    if (error instanceof ApiError) {
+      const requestLabel = error.requestId ? ` Request ID: ${error.requestId}` : "";
+      return `${error.message}${requestLabel}`;
+    }
+
+    return error instanceof Error
+      ? error.message
+      : "Unable to deploy lead right now.";
+  };
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -89,7 +99,17 @@ export function CreateLeadDialog({
       return;
     }
 
-    await createLeadMutation.mutateAsync(parsed.data);
+    setDeploying(true);
+
+    try {
+      await createLeadMutation.mutateAsync(parsed.data);
+    } catch (error) {
+      const message = getDeployErrorMessage(error);
+      setFormError(message);
+      toast.error(message);
+    } finally {
+      setDeploying(false);
+    }
   });
 
   return (
@@ -197,9 +217,9 @@ export function CreateLeadDialog({
             <Button
               type="submit"
               className="rounded-2xl bg-emerald-300 text-slate-950 hover:bg-emerald-200"
-              disabled={createLeadMutation.isPending}
+              disabled={deploying || createLeadMutation.isPending}
             >
-              {createLeadMutation.isPending ? "Deploying..." : "Create lead"}
+              {deploying || createLeadMutation.isPending ? "Deploying..." : "Deploy"}
             </Button>
           </div>
         </form>

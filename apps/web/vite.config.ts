@@ -13,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@utopia/schemas': path.resolve(__dirname, '../../packages/schemas/src/index.ts'),
     },
   },
 })
