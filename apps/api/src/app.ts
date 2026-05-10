@@ -110,6 +110,70 @@ type AgentConnectionStatus = {
   securityNote?: string;
 };
 
+
+
+type MissionRunnerStepStatus = "pending" | "running" | "completed" | "failed" | "approval_required";
+
+type MissionRunnerStep = {
+  id: string;
+  title: string;
+  action: "research_lead" | "request_approval" | "promote_client";
+  status: MissionRunnerStepStatus;
+  detail: string;
+  requiresApproval: boolean;
+  approvalId?: string;
+};
+
+type MissionRunnerStatus = "queued" | "running" | "blocked" | "failed" | "completed";
+
+type MissionRunner = {
+  id: string;
+  ownerId: string | null;
+  objective: string;
+  status: MissionRunnerStatus;
+  leadId: string;
+  startedAt: string;
+  completedAt?: string;
+  steps: MissionRunnerStep[];
+};
+
+const missionRunnerQueue = new Map<string, MissionRunner>();
+
+const createLeadQualificationMission = (leadId: string, ownerId: string | null): MissionRunner => ({
+  id: globalThis.crypto.randomUUID(),
+  ownerId,
+  objective: "Qualify lead and prepare safe client promotion path",
+  status: "queued",
+  leadId,
+  startedAt: new Date().toISOString(),
+  steps: [
+    {
+      id: "step-research",
+      title: "Run lead research",
+      action: "research_lead",
+      status: "pending",
+      detail: "Gather structured context and recommended next action.",
+      requiresApproval: false,
+    },
+    {
+      id: "step-approval",
+      title: "Request promotion approval",
+      action: "request_approval",
+      status: "pending",
+      detail: "Escalate promotion decision for human approval before material lifecycle change.",
+      requiresApproval: true,
+    },
+    {
+      id: "step-promote",
+      title: "Promote lead to client",
+      action: "promote_client",
+      status: "pending",
+      detail: "Create a client record once approval is granted.",
+      requiresApproval: true,
+    },
+  ],
+});
+
 type CreateAppOptions = {
   persistence?: PersistenceConfigState;
   verifyAccessToken?: (accessToken: string) => Promise<AuthenticatedUser | null>;
@@ -1095,6 +1159,97 @@ export const createApp = (
       );
     },
   );
+
+
+
+  app.post(
+    "/api/missions/lead-qualification",
+    zValidator("json", z.object({ leadId: z.string().trim().min(1), autoApprove: z.boolean().optional() })),
+    async (context) => {
+      const { leadId, autoApprove } = context.req.valid("json");
+      const scopedRepository = getRepository(context);
+      const lead = await scopedRepository.getLead(leadId);
+      if (!lead) {
+        return context.json({ error: "Lead not found." }, 404);
+      }
+
+      const mission = createLeadQualificationMission(leadId, context.get("currentUserId"));
+      mission.status = "running";
+      mission.steps[0].status = "running";
+
+      const researchResponse = await app.request(`/api/leads/${leadId}/research`, { method: "POST", headers: context.req.raw.headers });
+      if (!researchResponse.ok) {
+        mission.steps[0].status = "failed";
+        mission.status = "failed";
+        mission.completedAt = new Date().toISOString();
+        missionRunnerQueue.set(mission.id, mission);
+        const payload = await researchResponse.json();
+        return context.json({ mission, error: payload }, 500);
+      }
+
+      mission.steps[0].status = "completed";
+      mission.steps[1].status = "running";
+
+      const approval = await scopedRepository.createApproval({
+        action: "promote_client",
+        targetType: "lead",
+        targetId: leadId,
+        title: `Approve promotion for ${lead.company}`,
+        summary: "Mission runner requests human approval before client promotion.",
+        payload: { missionId: mission.id, leadId },
+      });
+      mission.steps[1].approvalId = approval.id;
+
+      if (!autoApprove) {
+        mission.steps[1].status = "approval_required";
+        mission.steps[2].status = "approval_required";
+        mission.status = "blocked";
+        missionRunnerQueue.set(mission.id, mission);
+        return context.json({ mission, approval }, 202);
+      }
+
+      await scopedRepository.resolveApproval(approval.id, "approved");
+      mission.steps[1].status = "completed";
+      mission.steps[2].status = "running";
+
+      const promoted = await scopedRepository.promoteLeadWithActivity({
+        leadId,
+        promotion: {
+          auditNote: "Auto-approved mission runner promotion.",
+          roadmapItem: "Kickoff and scope capture",
+        },
+        activity: {
+          entityType: "lead",
+          kind: "client.promoted",
+          actor: "agent",
+          message: "Mission runner promoted lead to client after approval.",
+          xpAwards: zeroXp,
+        },
+      });
+
+      if (!promoted) {
+        mission.steps[2].status = "failed";
+        mission.status = "failed";
+        mission.completedAt = new Date().toISOString();
+        missionRunnerQueue.set(mission.id, mission);
+        return context.json({ mission, error: "Promotion failed." }, 500);
+      }
+
+      mission.steps[2].status = "completed";
+      mission.status = "completed";
+      mission.completedAt = new Date().toISOString();
+      missionRunnerQueue.set(mission.id, mission);
+      return context.json({ mission, approval, client: promoted.client }, 201);
+    },
+  );
+
+  app.get("/api/missions/runs", async (context) => {
+    const currentUserId = context.get("currentUserId");
+    const runs = currentUserId
+      ? Array.from(missionRunnerQueue.values()).filter((mission) => mission.ownerId === currentUserId)
+      : Array.from(missionRunnerQueue.values());
+    return context.json({ runs });
+  });
 
   return app;
 };

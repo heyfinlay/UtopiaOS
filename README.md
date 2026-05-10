@@ -8,7 +8,7 @@ Utopia Command is a monorepo for a tactical business operating system built arou
 - a Supabase-backed repository layer in [`packages/db`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/db)
 - an agent execution bridge in [`packages/agent-actions`](/Users/finlaysturzaker/Documents/UtopiaOS/packages/agent-actions)
 
-The current product slice covers lead capture, structured lead research, activity logging, XP progression, approvals, runtime visibility, and agent safety controls.
+The current product slice covers lead capture, structured lead research, activity logging, XP progression, approvals, runtime visibility, agent safety controls, and a mission runner for closed-loop lead qualification workflows.
 
 The current architecture is organized around explicit product domains:
 
