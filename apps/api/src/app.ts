@@ -128,6 +128,7 @@ type MissionRunnerStatus = "queued" | "running" | "blocked" | "failed" | "comple
 
 type MissionRunner = {
   id: string;
+  ownerId: string | null;
   objective: string;
   status: MissionRunnerStatus;
   leadId: string;
@@ -138,8 +139,9 @@ type MissionRunner = {
 
 const missionRunnerQueue = new Map<string, MissionRunner>();
 
-const createLeadQualificationMission = (leadId: string): MissionRunner => ({
+const createLeadQualificationMission = (leadId: string, ownerId: string | null): MissionRunner => ({
   id: globalThis.crypto.randomUUID(),
+  ownerId,
   objective: "Qualify lead and prepare safe client promotion path",
   status: "queued",
   leadId,
@@ -1171,7 +1173,7 @@ export const createApp = (
         return context.json({ error: "Lead not found." }, 404);
       }
 
-      const mission = createLeadQualificationMission(leadId);
+      const mission = createLeadQualificationMission(leadId, context.get("currentUserId"));
       mission.status = "running";
       mission.steps[0].status = "running";
 
@@ -1242,7 +1244,11 @@ export const createApp = (
   );
 
   app.get("/api/missions/runs", async (context) => {
-    return context.json({ runs: Array.from(missionRunnerQueue.values()) });
+    const currentUserId = context.get("currentUserId");
+    const runs = currentUserId
+      ? Array.from(missionRunnerQueue.values()).filter((mission) => mission.ownerId === currentUserId)
+      : Array.from(missionRunnerQueue.values());
+    return context.json({ runs });
   });
 
   return app;

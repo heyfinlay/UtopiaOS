@@ -892,3 +892,92 @@ describe("createApp", () => {
     expect(missionPayload.mission.steps[1].status).toBe("approval_required");
   });
 
+  it("scopes mission run listings to the authenticated owner in supabase mode", async () => {
+    const repository = {
+      ...createMemoryUtopiaRepository(),
+      mode: "supabase" as const,
+    };
+    const ownerOneRepository = createMemoryUtopiaRepository();
+    const ownerTwoRepository = createMemoryUtopiaRepository();
+    const ownerRepositories = new Map([
+      ["user-1", ownerOneRepository],
+      ["user-2", ownerTwoRepository],
+    ]);
+    const app = createApp(repository, {
+      persistence: {
+        supabaseUrlConfigured: true,
+        serviceRoleConfigured: true,
+        supabaseConfigured: true,
+        ownerConfigured: false,
+        ownerIdFormatValid: false,
+        persistenceEnabled: true,
+      },
+      verifyAccessToken: vi.fn(async (accessToken: string) => {
+        if (accessToken === "token-user-1") return { id: "user-1" };
+        if (accessToken === "token-user-2") return { id: "user-2" };
+        return null;
+      }),
+      createRepositoryForOwner: vi.fn((ownerId: string) => {
+        const ownerRepository = ownerRepositories.get(ownerId);
+        if (!ownerRepository) {
+          throw new Error(`Missing repository for owner ${ownerId}`);
+        }
+        return { ...ownerRepository, mode: "supabase" as const };
+      }),
+    });
+
+    const createLeadForOwner = async (token: string, name: string) => {
+      const response = await app.request("/api/leads", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name, company: `${name} Co`, source: "Inbound" }),
+      });
+      const payload = await response.json();
+      return payload.lead.id as string;
+    };
+
+    const ownerOneLeadId = await createLeadForOwner("token-user-1", "Owner One");
+    const ownerTwoLeadId = await createLeadForOwner("token-user-2", "Owner Two");
+
+    await app.request("/api/missions/lead-qualification", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token-user-1",
+      },
+      body: JSON.stringify({ leadId: ownerOneLeadId }),
+    });
+
+    await app.request("/api/missions/lead-qualification", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token-user-2",
+      },
+      body: JSON.stringify({ leadId: ownerTwoLeadId }),
+    });
+
+    const ownerOneRunsResponse = await app.request("/api/missions/runs", {
+      headers: {
+        authorization: "Bearer token-user-1",
+      },
+    });
+    const ownerTwoRunsResponse = await app.request("/api/missions/runs", {
+      headers: {
+        authorization: "Bearer token-user-2",
+      },
+    });
+
+    expect(ownerOneRunsResponse.status).toBe(200);
+    expect(ownerTwoRunsResponse.status).toBe(200);
+    const ownerOneRunsPayload = await ownerOneRunsResponse.json();
+    const ownerTwoRunsPayload = await ownerTwoRunsResponse.json();
+    expect(ownerOneRunsPayload.runs).toHaveLength(1);
+    expect(ownerTwoRunsPayload.runs).toHaveLength(1);
+    expect(ownerOneRunsPayload.runs[0].ownerId).toBe("user-1");
+    expect(ownerTwoRunsPayload.runs[0].ownerId).toBe("user-2");
+    expect(ownerOneRunsPayload.runs[0].id).not.toBe(ownerTwoRunsPayload.runs[0].id);
+  });
