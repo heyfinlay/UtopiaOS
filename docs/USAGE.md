@@ -128,3 +128,21 @@ Check:
 - whether the external agent returned valid JSON
 - whether the returned JSON matches the required schema
 - whether `OPENCLAW_COMMAND` itself is exiting successfully
+
+
+### 7. Run a lead-qualification mission
+
+Call `POST /api/missions/lead-qualification` with:
+
+```json
+{ "leadId": "<lead-id>", "autoApprove": true }
+```
+
+Behavior:
+
+1. Executes `research_lead` for the target lead.
+2. Creates a `promote_client` approval.
+3. If `autoApprove` is false or omitted, the mission blocks and waits for human approval.
+4. If `autoApprove` is true, the approval is resolved and the lead is promoted to a client automatically.
+
+Check mission run state with `GET /api/missions/runs`.

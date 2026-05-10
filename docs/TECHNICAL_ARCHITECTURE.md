@@ -68,3 +68,17 @@ The in-memory repository remains available for targeted tests and local doubles 
 - Agent output is untrusted until parsed and validated.
 - Command execution failures are surfaced as failed runs, not silent fallbacks.
 - Activity logs and agent runs provide an audit trail for each material action.
+
+
+## Mission Runner
+
+The mission runner adds a closed-loop execution path for lead qualification:
+
+1. Accept a mission request targeting a lead (`POST /api/missions/lead-qualification`).
+2. Execute lead research via the existing research action and safety model.
+3. Create a promotion approval request for human review.
+4. If `autoApprove` is enabled, resolve approval and promote the lead to a client in the same run.
+5. Persist run state in-memory for runtime observability through `GET /api/missions/runs`.
+
+Mission run statuses are `queued`, `running`, `blocked`, `failed`, and `completed`.
+Step statuses are `pending`, `running`, `completed`, `failed`, and `approval_required`.

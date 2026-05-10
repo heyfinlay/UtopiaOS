@@ -843,3 +843,52 @@ describe("createApp", () => {
     expect(payload.requestId).toEqual(expect.any(String));
   });
 });
+
+  it("runs a lead-qualification mission end-to-end with auto-approval", async () => {
+    const repository = createUtopiaRepository();
+    const app = createApp(repository);
+
+    const createResponse = await app.request("/api/leads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Mila", company: "Northstar Ops", source: "Inbound" }),
+    });
+    expect(createResponse.status).toBe(201);
+    const created = await createResponse.json();
+
+    const missionResponse = await app.request("/api/missions/lead-qualification", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ leadId: created.lead.id, autoApprove: true }),
+    });
+
+    expect(missionResponse.status).toBe(201);
+    const missionPayload = await missionResponse.json();
+    expect(missionPayload.mission.status).toBe("completed");
+    expect(missionPayload.mission.steps.every((step: { status: string }) => step.status === "completed")).toBe(true);
+    expect(missionPayload.client).toBeDefined();
+  });
+
+  it("blocks a lead-qualification mission when approval is required", async () => {
+    const repository = createUtopiaRepository();
+    const app = createApp(repository);
+
+    const createResponse = await app.request("/api/leads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Iris", company: "Beacon Foundry", source: "Referral" }),
+    });
+    const created = await createResponse.json();
+
+    const missionResponse = await app.request("/api/missions/lead-qualification", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ leadId: created.lead.id }),
+    });
+
+    expect(missionResponse.status).toBe(202);
+    const missionPayload = await missionResponse.json();
+    expect(missionPayload.mission.status).toBe("blocked");
+    expect(missionPayload.mission.steps[1].status).toBe("approval_required");
+  });
+
